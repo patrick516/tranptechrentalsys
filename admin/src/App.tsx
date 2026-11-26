@@ -1,35 +1,56 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { useState } from "react";
+import { AuthProvider, useAuth } from "./context/AuthContext";
+import LoginPage from "./pages/Login";
+import AdminLayout, { type AdminNavId } from "./layouts/AdminLayout";
+import DashboardPage from "./pages/Dashboard";
+import TodayPage from "./pages/Today";
+import BookingsPage from "./pages/Bookings";
+import CustomersPage from "./pages/Customers";
+import StockPage from "./pages/Stock";
+import PaymentsPage from "./pages/Payments";
+import PromisesPage from "./pages/Promises";
+import MessagesPage from "./pages/Messages";
+import ReportsPage from "./pages/Reports";
+import FilesPage from "./pages/Files";
+import SettingsPage from "./pages/Settings";
 
-function App() {
-  const [count, setCount] = useState(0)
+function AuthenticatedApp() {
+  const { user, loading } = useAuth();
+  const [activeTab, setActiveTab] = useState<AdminNavId>("dashboard");
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white text-sm font-medium text-brand-navy">
+        Loading session...
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage />;
+  }
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    <AdminLayout activeTab={activeTab} onSelectTab={setActiveTab}>
+      {activeTab === "dashboard" && <DashboardPage onNavigate={setActiveTab} />}
+      {activeTab === "today" && <TodayPage />}
+      {activeTab === "bookings" && <BookingsPage />}
+      {activeTab === "customers" && <CustomersPage />}
+      {activeTab === "stock" && <StockPage />}
+      {activeTab === "payments" && <PaymentsPage />}
+      {activeTab === "promises" && <PromisesPage />}
+      {activeTab === "messages" && <MessagesPage />}
+      {activeTab === "reports" && <ReportsPage />}
+      {activeTab === "files" && <FilesPage />}
+      {activeTab === "settings" && <SettingsPage />}
+    </AdminLayout>
+  );
 }
 
-export default App
+export default function App() {
+  return (
+    <AuthProvider>
+      <AuthenticatedApp />
+    </AuthProvider>
+  );
+}

@@ -1,0 +1,53 @@
+const express = require("express");
+const { requireAuth } = require("../middleware/auth");
+const { requireRoles } = require("../middleware/roles");
+const { validate } = require("../middleware/validate");
+const {
+  createCustomerSchema,
+  updateCustomerSchema,
+  statusChangeSchema,
+  addContactSchema,
+} = require("../validators/customers.validator");
+const customersController = require("../controllers/customers.controller");
+
+const router = express.Router();
+
+router.use(requireAuth);
+
+router.get(
+  "/",
+  requireRoles("ADMIN", "STAFF", "VIEWER"),
+  customersController.list,
+);
+router.post(
+  "/",
+  requireRoles("ADMIN", "STAFF"),
+  validate({ body: createCustomerSchema }),
+  customersController.create,
+);
+router.get(
+  "/:id",
+  requireRoles("ADMIN", "STAFF", "VIEWER"),
+  customersController.detail,
+);
+router.patch(
+  "/:id",
+  requireRoles("ADMIN", "STAFF"),
+  validate({ body: updateCustomerSchema }),
+  customersController.update,
+);
+router.post(
+  "/:id/status",
+  requireRoles("ADMIN", "STAFF"),
+  validate({ body: statusChangeSchema }),
+  customersController.updateStatus,
+);
+router.post(
+  "/:id/contacts",
+  requireRoles("ADMIN", "STAFF"),
+  validate({ body: addContactSchema }),
+  customersController.createContact,
+);
+router.delete("/:id", requireRoles("ADMIN"), customersController.archive);
+
+module.exports = router;
