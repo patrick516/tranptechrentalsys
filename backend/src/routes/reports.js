@@ -306,4 +306,29 @@ router.get(
   },
 );
 
+const { loadReportBundle, generateReportPdfBuffer } = require("../services/exports/reportPdf");
+
+router.get(
+  "/export/pdf",
+  requireRoles("ADMIN", "VIEWER"),
+  validate({ query: rangeQuerySchema }),
+  async (req, res, next) => {
+    try {
+      const range = rangeFromQuery(req.query);
+      const bundle = await loadReportBundle(range);
+      const buffer = await generateReportPdfBuffer(bundle);
+      const from = range.from || bundle.range.from;
+      const to = range.to || bundle.range.to;
+      res.set("Content-Type", "application/pdf");
+      res.set(
+        "Content-Disposition",
+        `attachment; filename="TranpTech_Report_${from}_${to}.pdf"`,
+      );
+      return res.status(200).send(buffer);
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
 module.exports = router;

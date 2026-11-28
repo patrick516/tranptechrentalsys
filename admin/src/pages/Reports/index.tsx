@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { AlertCircle, Download, Loader2 } from "lucide-react";
+import { AlertCircle, Download, FileText, Loader2 } from "lucide-react";
 import { apiRequest, apiDownload } from "../../api/client";
 import { formatMK, todayBlantyre } from "../../lib/format";
 import { Button } from "@/components/ui/button";
@@ -131,6 +131,7 @@ export default function ReportsPage() {
   const [exportName, setExportName] = useState("summary");
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [error, setError] = useState("");
 
   const range = `from=${encodeURIComponent(period.from)}&to=${encodeURIComponent(period.to)}`;
@@ -174,6 +175,21 @@ export default function ReportsPage() {
       setError(err instanceof Error ? err.message : "Export failed");
     } finally {
       setExporting(false);
+    }
+  }
+
+  async function handleExportPdf() {
+    setExportingPdf(true);
+    setError("");
+    try {
+      await apiDownload(
+        `/reports/export/pdf?${range}`,
+        `TranpTech_Report_${period.from}_${period.to}.pdf`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "PDF export failed");
+    } finally {
+      setExportingPdf(false);
     }
   }
 
@@ -257,13 +273,21 @@ export default function ReportsPage() {
               options={EXPORTS}
               className="w-48"
             />
-            <Button variant="outline" onClick={handleExport} disabled={exporting}>
+            <Button variant="outline" onClick={handleExport} disabled={exporting || exportingPdf}>
               {exporting ? (
                 <Loader2 className="animate-spin" aria-hidden />
               ) : (
                 <Download aria-hidden />
               )}
               {exporting ? "Preparing…" : "Download CSV"}
+            </Button>
+            <Button variant="outline" onClick={handleExportPdf} disabled={exporting || exportingPdf}>
+              {exportingPdf ? (
+                <Loader2 className="animate-spin" aria-hidden />
+              ) : (
+                <FileText aria-hidden />
+              )}
+              {exportingPdf ? "Preparing…" : "Download PDF"}
             </Button>
           </div>
         }

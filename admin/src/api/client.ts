@@ -13,7 +13,10 @@ export function getAccessToken(): string | null {
   return accessToken;
 }
 
-async function refreshAccessToken(): Promise<string | null> {
+// Exported so AuthContext shares the same de-duplicated refresh. Concurrent
+// callers (e.g. React StrictMode's double effect) get the same promise, so the
+// rotating refresh token is only used once.
+export async function refreshAccessToken(): Promise<string | null> {
   if (refreshPromise) return refreshPromise;
 
   refreshPromise = (async () => {
@@ -76,6 +79,8 @@ export async function apiRequest<T = unknown>(
     if (nextToken) {
       return apiRequest<T>(path, { method, body, retry: false });
     }
+    // Session is gone: tell the app so it can return to the sign-in screen.
+    window.dispatchEvent(new Event("auth:expired"));
   }
 
   const payload = await res.json().catch(() => ({}));
@@ -106,9 +111,7 @@ export async function apiDownload(
 
   if (!res.ok) {
     const payload = await res.json().catch(() => ({}));
-    const err: ApiError = new Error(
-      payload?.error?.message || "Export failed",
-    );
+    const err: ApiError = new Error(payload?.error?.message || "Export failed");
     err.code = payload?.error?.code || "API_ERROR";
     err.status = res.status;
     throw err;
@@ -130,7 +133,9 @@ export async function apiDownload(
 
 // Fetches a protected endpoint and returns the raw bytes (used by the in-app
 // file viewer, which shows the file without saving it to the computer).
-export async function apiBlob(path: string): Promise<{ blob: Blob; fileName: string }> {
+export async function apiBlob(
+  path: string,
+): Promise<{ blob: Blob; fileName: string }> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "GET",
     headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
@@ -138,7 +143,9 @@ export async function apiBlob(path: string): Promise<{ blob: Blob; fileName: str
   });
   if (!res.ok) {
     const payload = await res.json().catch(() => ({}));
-    const err: ApiError = new Error(payload?.error?.message || "Could not open the file");
+    const err: ApiError = new Error(
+      payload?.error?.message || "Could not open the file",
+    );
     err.code = payload?.error?.code || "API_ERROR";
     err.status = res.status;
     throw err;

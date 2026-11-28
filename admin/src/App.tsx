@@ -53,7 +53,10 @@ function AdminShell() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   return (
-    <AdminLayout activeTab={tabFromPath(pathname)} onSelectTab={(tab) => navigate(PATHS[tab])}>
+    <AdminLayout
+      activeTab={tabFromPath(pathname)}
+      onSelectTab={(tab) => navigate(PATHS[tab])}
+    >
       <Outlet />
     </AdminLayout>
   );
@@ -66,14 +69,20 @@ function LoginRoute() {
   return <LoginPage />;
 }
 
-// Shown while the session and the first-run flag are still being checked, so
-// the portal never flashes the wrong screen.
-function BootScreen() {
+// Shown while the session and the first-run flag are being checked, or when
+// the setup check fails, so the portal never flashes or guesses the wrong screen.
+function BootScreen({
+  failed = false,
+  onRetry,
+}: {
+  failed?: boolean;
+  onRetry?: () => void;
+}) {
   return (
     <div
       role="status"
       aria-live="polite"
-      className="flex min-h-screen flex-col items-center justify-center gap-3 bg-white font-sans"
+      className="flex min-h-screen flex-col items-center justify-center gap-3 bg-white px-4 text-center font-sans"
     >
       <img
         src="/images/RentalsLogo.png"
@@ -82,16 +91,33 @@ function BootScreen() {
         height={60}
         className="h-12 w-auto"
       />
-      <p className="text-sm text-slate-500">Checking system…</p>
+      {failed ? (
+        <>
+          <p className="text-sm text-slate-600">
+            Could not reach the server. Check your connection and try again.
+          </p>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="h-10 rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-brand-navy hover:bg-slate-50"
+          >
+            Try again
+          </button>
+        </>
+      ) : (
+        <p className="text-sm text-slate-500">Checking system…</p>
+      )}
     </div>
   );
 }
 
 // Decides between the one-time register screen and the normal portal.
 function AppRoutes() {
-  const { user, loading, needsSetup } = useAuth();
+  const { user, loading, needsSetup, setupError, retrySetup } = useAuth();
 
-  if (loading || needsSetup === null) return <BootScreen />;
+  if (loading) return <BootScreen />;
+  if (!user && setupError) return <BootScreen failed onRetry={retrySetup} />;
+  if (!user && needsSetup === null) return <BootScreen />;
 
   // No users in the database yet: only the first-run account can be created,
   // and every other URL leads there.
@@ -108,9 +134,7 @@ function AppRoutes() {
     <Routes>
       <Route
         path="/register"
-        element={
-          <Navigate to={user ? "/dashboard" : "/login"} replace />
-        }
+        element={<Navigate to={user ? "/dashboard" : "/login"} replace />}
       />
       <Route path="/login" element={<LoginRoute />} />
       <Route

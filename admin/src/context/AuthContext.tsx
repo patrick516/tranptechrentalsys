@@ -7,7 +7,7 @@ import React, {
   useEffect,
   useCallback,
 } from "react";
-import { apiRequest, setAccessToken } from "../api/client";
+import { apiRequest, setAccessToken, refreshAccessToken } from "../api/client";
 
 export interface AuthUser {
   _id: string;
@@ -29,6 +29,10 @@ interface AuthContextValue {
   // null = still checking. true = no users exist yet, so the portal must show
   // the one-time register screen instead of the sign-in screen.
   needsSetup: boolean | null;
+  // true when the /auth/setup check failed (API unreachable, CORS, etc.).
+  // The UI shows a "Try again" screen instead of silently showing Login.
+  setupError: boolean;
+  retrySetup: () => void;
   login: (email: string, password: string) => Promise<AuthUser>;
   register: (input: RegisterInput) => Promise<AuthUser>;
   logout: () => Promise<void>;
@@ -40,9 +44,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
+  const [setupError, setSetupError] = useState(false);
 
   // Asks the API whether the very first account still has to be created.
   const loadSetup = useCallback(async () => {
+    setSetupError(false);
     try {
       const res = await apiRequest<{ data: { needsSetup: boolean } }>(
         "/auth/setup",
@@ -50,31 +56,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       );
       setNeedsSetup(Boolean(res?.data?.needsSetup));
     } catch {
-      // API unreachable: fall back to the normal sign-in screen.
-      setNeedsSetup(false);
+      // Do not guess: surface the failure so it is visible and retryable.
+      setSetupError(true);
     }
   }, []);
 
   const loadSession = useCallback(async () => {
     try {
-      const apiBase =
-        (import.meta.env.VITE_API_URL as string | undefined) ||
-        "http://localhost:5000/api/v1";
-      const refreshRes = await fetch(`${apiBase}/auth/refresh`, {
-        method: "POST",
-        credentials: "include",
-      });
-      if (!refreshRes.ok) {
-        setAccessToken(null);
+      // Shared, de-duplicated refresh: StrictMode's double effect can no
+      // longer burn the rotating refresh token twice.
+      const token = await refreshAccessToken();
+      if (!token) {
         setUser(null);
-        setLoading(false);
         return;
       }
-      const refreshJson = await refreshRes.json();
-      setAccessToken(refreshJson?.data?.accessToken || null);
       const meRes = await apiRequest<{ data: { user: AuthUser } }>("/auth/me");
       setUser(meRes?.data?.user || null);
     } catch {
+      setAccessToken(null);
       setUser(null);
     } finally {
       setLoading(false);
@@ -85,6 +84,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loadSession();
     loadSetup();
   }, [loadSession, loadSetup]);
+
+  // If a request finds the session dead and cannot refresh it, return to the
+  // sign-in screen instead of leaving a half-working dashboard.
+  useEffect(() => {
+    const onExpired = () => {
+      setAccessToken(null);
+      setUser(null);
+    };
+    window.addEventListener("auth:expired", onExpired);
+    return () => window.removeEventListener("auth:expired", onExpired);
+  }, []);
 
   const login = async (email: string, password: string): Promise<AuthUser> => {
     const res = await apiRequest<{
@@ -111,6 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAccessToken(res.data.accessToken);
     setUser(res.data.user);
     setNeedsSetup(false);
+    setSetupError(false);
     return res.data.user;
   };
 
@@ -127,7 +138,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, needsSetup, login, register, logout }}
+      value={{
+        user,
+        loading,
+        needsSetup,
+        setupError,
+        retrySetup: loadSetup,
+        login,
+        register,
+        logout,
+      }}
     >
       {children}
     </AuthContext.Provider>

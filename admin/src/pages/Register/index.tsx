@@ -1,15 +1,14 @@
-// One-time first-run screen: shown only while the database has no users at
-// all. The account created here becomes the administrator; after that every
-// other account is added from inside the system.
+// One-time first-run screen: shown only while the database has no users.
 import { useState, type FormEvent } from "react";
 import { AlertCircle, Eye, EyeOff, Loader2, ShieldCheck } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+import AuthShell from "@/components/auth/AuthShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 const fieldClass =
-  "h-10 border-slate-300 bg-white shadow-none placeholder:text-slate-400 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/25";
+  "h-11 border-slate-300 bg-white shadow-none placeholder:text-slate-400 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/25";
 
 export default function RegisterPage() {
   const { register } = useAuth();
@@ -47,70 +46,57 @@ export default function RegisterPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-white px-4 py-10 font-sans text-brand-navy">
-      <div className="w-full max-w-sm sm:rounded-xl sm:border sm:border-slate-200 sm:p-8">
-        <img
-          src="/images/RentalsLogo.png"
-          alt="TranpTech Rentals"
-          width={160}
-          height={80}
-          className="mx-auto h-20 w-auto"
+    <AuthShell
+      title="Set up the system"
+      subtitle="No accounts exist yet. Create the first one."
+      footer="One-time setup · closes as soon as this account exists"
+    >
+      <div className="mb-6 flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+        <ShieldCheck
+          className="mt-0.5 h-4 w-4 shrink-0 text-primary"
+          aria-hidden
         />
+        <span>
+          This account becomes the <strong>administrator</strong>. Every other
+          user is added from inside the portal.
+        </span>
+      </div>
 
-        <div className="mt-6 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Set up the system
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            No accounts exist yet — create the first one.
-          </p>
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="space-y-2">
+          <Label htmlFor="name">Full name</Label>
+          <Input
+            id="name"
+            name="name"
+            autoComplete="name"
+            autoFocus
+            required
+            maxLength={120}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={submitting}
+            placeholder="Ada Banda"
+            className={fieldClass}
+          />
         </div>
 
-        <div className="mt-5 flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600">
-          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
-          <span>
-            This account becomes the <strong>administrator</strong>. It is the
-            only one that can be self-registered — afterwards every other user
-            is added from inside the portal.
-          </span>
+        <div className="space-y-2">
+          <Label htmlFor="email">Email</Label>
+          <Input
+            id="email"
+            type="email"
+            name="email"
+            autoComplete="username"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={submitting}
+            placeholder="owner@tranptech.mw"
+            className={fieldClass}
+          />
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-6 space-y-5">
-          <div className="space-y-2">
-            <Label htmlFor="name">Full name</Label>
-            <Input
-              id="name"
-              name="name"
-              autoComplete="name"
-              autoFocus
-              required
-              maxLength={120}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              disabled={submitting}
-              aria-invalid={Boolean(error)}
-              placeholder="Ada Banda"
-              className={fieldClass}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              name="email"
-              autoComplete="username"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={submitting}
-              aria-invalid={Boolean(error)}
-              placeholder="owner@tranptech.mw"
-              className={fieldClass}
-            />
-          </div>
-
+        <div className="grid gap-5 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="password">Password</Label>
             <div className="relative">
@@ -124,8 +110,8 @@ export default function RegisterPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={submitting}
-                aria-invalid={tooShort || Boolean(error)}
-                placeholder="At least 10 characters"
+                aria-invalid={tooShort}
+                placeholder="10+ characters"
                 className={`${fieldClass} pr-11`}
               />
               <button
@@ -160,46 +146,41 @@ export default function RegisterPage() {
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               disabled={submitting}
-              aria-invalid={mismatch || Boolean(error)}
-              placeholder="Repeat the password"
+              aria-invalid={mismatch}
+              placeholder="Repeat password"
               className={fieldClass}
             />
             {mismatch && (
-              <p className="text-xs text-red-600">The passwords do not match.</p>
+              <p className="text-xs text-red-600">Passwords do not match.</p>
             )}
           </div>
+        </div>
 
-          {error && (
-            <p
-              id="register-error"
-              role="alert"
-              className="flex items-start gap-2 text-sm text-red-600"
-            >
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              <span>{error}</span>
-            </p>
-          )}
-
-          <Button
-            type="submit"
-            disabled={
-              submitting ||
-              !name.trim() ||
-              !email.trim() ||
-              password.length < 10 ||
-              password !== confirm
-            }
-            className="h-10 w-full shadow-none"
+        {error && (
+          <p
+            role="alert"
+            className="flex items-start gap-2 text-sm text-red-600"
           >
-            {submitting && <Loader2 className="animate-spin" aria-hidden />}
-            {submitting ? "Creating account…" : "Create admin account"}
-          </Button>
-        </form>
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            <span>{error}</span>
+          </p>
+        )}
 
-        <p className="mt-6 text-center text-xs text-slate-500">
-          One-time setup &middot; closes as soon as this account exists
-        </p>
-      </div>
-    </main>
+        <Button
+          type="submit"
+          disabled={
+            submitting ||
+            !name.trim() ||
+            !email.trim() ||
+            password.length < 10 ||
+            password !== confirm
+          }
+          className="h-11 w-full shadow-none"
+        >
+          {submitting && <Loader2 className="animate-spin" aria-hidden />}
+          {submitting ? "Creating account…" : "Create admin account"}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }
