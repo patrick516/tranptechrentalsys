@@ -30,8 +30,8 @@ function SidebarPanel({
 }: PanelProps) {
   return (
     <div className="flex h-full flex-col bg-white">
-      <div className="flex items-start justify-between px-5 pb-4 pt-5">
-        <div>
+      <div className="relative flex items-start justify-center px-5 pb-4 pt-5">
+        <div className="flex flex-col items-center text-center">
           <img
             src="/images/RentalsLogo.png"
             alt="TranpTech Rentals"
@@ -50,7 +50,7 @@ function SidebarPanel({
             type="button"
             onClick={onClose}
             aria-label="Close menu"
-            className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50 hover:text-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+            className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-50 hover:text-brand-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
           >
             <X className="h-5 w-5" aria-hidden />
           </button>
