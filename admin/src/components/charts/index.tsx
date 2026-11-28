@@ -43,6 +43,29 @@ function Frame({ height = 280, empty, children }: ChartFrameProps & { children: 
   );
 }
 
+// Keeps the x axis readable: show at most `max` labels, evenly spaced, no
+// matter how many days are in the range.
+function thinTicks(values: string[], max = 8): string[] {
+  if (values.length <= max) return values;
+  const step = Math.ceil(values.length / max);
+  return values.filter((_, i) => i % step === 0);
+}
+
+function collectX(series: Series[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const s of series) {
+    for (const p of s.data) {
+      const key = String(p.x);
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push(key);
+      }
+    }
+  }
+  return out.sort();
+}
+
 const commonProps = {
   margin: { top: 12, right: 20, bottom: 46, left: 64 },
   enableGridX: false,
@@ -62,19 +85,26 @@ export function TrendChart({
   yLegend?: string;
 }) {
   const empty = series.every((s) => s.data.length === 0);
+  const tickValues = thinTicks(collectX(series), 8);
+  const rotate = tickValues.length > 6;
   return (
     <Frame height={height} empty={empty}>
       <ResponsiveLine
         data={series}
         colors={CHART_COLORS.slice(0, series.length)}
         {...commonProps}
+        margin={{
+          ...commonProps.margin,
+          bottom: rotate ? 62 : commonProps.margin.bottom,
+        }}
         xScale={{ type: "point" }}
         yScale={{ type: "linear", stacked: false, min: "auto" }}
         curve="monotoneX"
         axisBottom={{
+          tickValues,
           tickSize: 0,
           tickPadding: 8,
-          tickRotation: 0,
+          tickRotation: rotate ? -40 : 0,
           format: (v) => {
             const s = String(v);
             return s.length > 7 ? s.slice(5) : s;
@@ -140,20 +170,23 @@ export function BarsChart({
   yLegend?: string;
 }) {
   const empty = data.length === 0 || data.every((d) => !d.value);
+  const tickValues = thinTicks(data.map((d) => d.label), 8);
+  const rotate = tickValues.length > 6;
   return (
     <Frame height={height} empty={empty}>
       <ResponsiveBar
         data={data}
         keys={["value"]}
         indexBy="label"
-        margin={{ top: 12, right: 16, bottom: 46, left: 64 }}
+        margin={{ top: 12, right: 16, bottom: rotate ? 62 : 46, left: 64 }}
         padding={0.25}
         colors={color}
         animate={false}
         axisBottom={{
+          tickValues,
           tickSize: 0,
           tickPadding: 8,
-          tickRotation: data.length > 12 ? -45 : 0,
+          tickRotation: rotate ? -40 : 0,
         }}
         axisLeft={{
           tickSize: 0,
