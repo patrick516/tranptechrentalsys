@@ -41,6 +41,32 @@ async function handleLogin(req, res, next) {
   }
 }
 
+async function handleSetupStatus(_req, res, next) {
+  try {
+    const status = await authService.getSetupStatus();
+    return res.status(200).json({ data: status });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+// First-run registration: only succeeds while there are no users at all.
+async function handleRegister(req, res, next) {
+  try {
+    const { user, accessToken, refreshToken, refreshExpiresAt } =
+      await authService.registerFirstAdmin(req.body, req);
+    setRefreshCookie(res, refreshToken, refreshExpiresAt);
+    return res.status(201).json({
+      data: {
+        accessToken,
+        user,
+      },
+    });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 async function handleRefresh(req, res, next) {
   try {
     const rawToken =
@@ -87,6 +113,8 @@ async function handleChangePassword(req, res, next) {
 
 module.exports = {
   REFRESH_COOKIE_NAME,
+  handleSetupStatus,
+  handleRegister,
   handleLogin,
   handleRefresh,
   handleLogout,

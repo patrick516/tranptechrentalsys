@@ -1,3 +1,4 @@
+// Page heading: title, optional subtitle and an optional area for action buttons.
 import React from "react";
 
 interface TopbarProps {
@@ -8,12 +9,12 @@ interface TopbarProps {
 
 export default function Topbar({ title, subtitle, rightSlot }: TopbarProps) {
   return (
-    <header className="flex flex-wrap items-center justify-between gap-3 border-b border-brand-blue/20 pb-4 mb-6">
+    <header className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
       <div>
-        <h1 className="text-2xl font-bold text-brand-navy">{title}</h1>
-        {subtitle && <p className="text-sm text-brand-navy/75">{subtitle}</p>}
+        <h1 className="text-2xl font-semibold tracking-tight text-brand-navy">{title}</h1>
+        {subtitle && <p className="mt-0.5 text-sm text-slate-500">{subtitle}</p>}
       </div>
-      {rightSlot && <div className="flex items-center gap-2">{rightSlot}</div>}
+      {rightSlot && <div className="flex flex-wrap items-center gap-2">{rightSlot}</div>}
     </header>
   );
 }

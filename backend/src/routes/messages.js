@@ -11,6 +11,7 @@ const { normalizePhone, detectNetwork } = require("../utils/phone");
 const { toBusinessDate } = require("../utils/dates");
 const { writeAuditLog } = require("../utils/audit");
 const { AppError } = require("../middleware/errors");
+const whatsapp = require("../services/whatsapp/client");
 
 const router = express.Router();
 
@@ -86,6 +87,16 @@ router.post(
         );
       }
 
+      if (req.body.channel === "WHATSAPP" && !contact.whatsappOptIn) {
+        return next(
+          new AppError(
+            "Contact has not agreed to WhatsApp messages",
+            400,
+            "WHATSAPP_OPT_OUT",
+          ),
+        );
+      }
+
       const normalizedPhone = normalizePhone(contact.phone);
       if (!normalizedPhone) {
         return next(
@@ -139,6 +150,28 @@ router.post(
         sentAt: initialStatus === "SENT" ? new Date() : null,
         createdBy: req.user._id,
       });
+
+      // Automatic WhatsApp: send straight through the Cloud API when the
+      // contact has opted in and the credentials are in .env. SMS keeps its
+      // existing log/live queue behaviour.
+      if (msg.channel === "WHATSAPP" && whatsapp.isConfigured()) {
+        try {
+          const sent = await whatsapp.send({
+            toPhone: normalizedPhone,
+            templateKey: msg.templateKey,
+            vars: { body: msg.body },
+            body: msg.body,
+          });
+          msg.status = "SENT";
+          msg.sentAt = new Date();
+          msg.providerMessageId = sent.providerMessageId;
+          await msg.save();
+        } catch (sendErr) {
+          msg.status = "FAILED";
+          msg.error = sendErr.message;
+          await msg.save();
+        }
+      }
 
       await writeAuditLog({
         userId: req.user._id,

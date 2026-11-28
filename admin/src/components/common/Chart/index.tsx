@@ -1,4 +1,5 @@
-import React from "react";
+// Simple horizontal bars. One colour (brand blue) on a light grey track.
+import Panel from "../Panel";
 
 export interface BarDatum {
   label: string;
@@ -8,46 +9,50 @@ export interface BarDatum {
 interface ChartProps {
   title: string;
   items: BarDatum[];
+  formatValue?: (value: number) => string; // e.g. formatMK for money
+  emptyText?: string;
 }
 
-export default function Chart({ title, items }: ChartProps) {
-  const maxVal = Math.max(1, ...items.map((i) => Number(i.value) || 0));
+export default function Chart({
+  title,
+  items,
+  formatValue = (value) => String(value),
+  emptyText = "No data to show yet.",
+}: ChartProps) {
+  const maxValue = Math.max(1, ...items.map((i) => Number(i.value) || 0));
 
   return (
-    <div className="rounded-lg border border-brand-blue bg-white p-4">
-      <h3 className="text-sm font-bold text-brand-navy">{title}</h3>
-      <div className="mt-3 space-y-2.5">
-        {items.length === 0 ? (
-          <div className="text-xs text-brand-navy/70">
-            No chart data available.
-          </div>
-        ) : (
-          items.map((item) => {
-            const pct = Math.min(
-              100,
-              Math.round(((Number(item.value) || 0) / maxVal) * 100),
-            );
+    <Panel title={title}>
+      {items.length === 0 ? (
+        <p className="text-sm text-slate-500">{emptyText}</p>
+      ) : (
+        <ul className="space-y-4">
+          {items.map((item) => {
+            const value = Number(item.value) || 0;
+            const percent = Math.min(100, Math.round((value / maxValue) * 100));
             return (
-              <div key={item.label} className="space-y-1">
-                <div className="flex justify-between text-xs font-medium">
-                  <span className="font-mono text-brand-navy">
-                    {item.label}
-                  </span>
-                  <span className="font-bold text-brand-blue">
-                    {item.value}
+              <li key={item.label}>
+                <div className="mb-1.5 flex items-baseline justify-between gap-3 text-sm">
+                  <span className="truncate text-slate-600">{item.label}</span>
+                  <span className="font-semibold tabular-nums text-brand-navy">
+                    {formatValue(value)}
                   </span>
                 </div>
-                <div className="h-2.5 w-full rounded-full bg-brand-blue/15 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-brand-green"
-                    style={{ width: `${pct}%` }}
-                  />
+                <div
+                  role="progressbar"
+                  aria-label={item.label}
+                  aria-valuemin={0}
+                  aria-valuemax={maxValue}
+                  aria-valuenow={value}
+                  className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100"
+                >
+                  <div className="h-full rounded-full bg-primary" style={{ width: `${percent}%` }} />
                 </div>
-              </div>
+              </li>
             );
-          })
-        )}
-      </div>
-    </div>
+          })}
+        </ul>
+      )}
+    </Panel>
   );
 }

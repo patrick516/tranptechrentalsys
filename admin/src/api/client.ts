@@ -91,3 +91,83 @@ export async function apiRequest<T = unknown>(
 
   return payload as T;
 }
+
+// Downloads a protected endpoint (CSV export) as a file. The response is
+// streamed straight from the API so the numbers are never re-computed client side.
+export async function apiDownload(
+  path: string,
+  fallbackName: string,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "GET",
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    credentials: "include",
+  });
+
+  if (!res.ok) {
+    const payload = await res.json().catch(() => ({}));
+    const err: ApiError = new Error(
+      payload?.error?.message || "Export failed",
+    );
+    err.code = payload?.error?.code || "API_ERROR";
+    err.status = res.status;
+    throw err;
+  }
+
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const match = /filename="([^"]+)"/.exec(disposition);
+  const name = match?.[1] || fallbackName;
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+// Fetches a protected endpoint and returns the raw bytes (used by the in-app
+// file viewer, which shows the file without saving it to the computer).
+export async function apiBlob(path: string): Promise<{ blob: Blob; fileName: string }> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "GET",
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    credentials: "include",
+  });
+  if (!res.ok) {
+    const payload = await res.json().catch(() => ({}));
+    const err: ApiError = new Error(payload?.error?.message || "Could not open the file");
+    err.code = payload?.error?.code || "API_ERROR";
+    err.status = res.status;
+    throw err;
+  }
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const match = /filename="([^"]+)"/.exec(disposition);
+  const blob = await res.blob();
+  return { blob, fileName: match?.[1] || "file" };
+}
+
+// Uploads a file to the backend (multipart/form-data).
+export async function apiUpload(
+  path: string,
+  formData: FormData,
+): Promise<unknown> {
+  const headers: Record<string, string> = {};
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers,
+    credentials: "include",
+    body: formData,
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err: ApiError = new Error(payload?.error?.message || "Upload failed");
+    err.code = payload?.error?.code || "API_ERROR";
+    err.status = res.status;
+    throw err;
+  }
+  return payload;
+}

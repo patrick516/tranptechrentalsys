@@ -1,7 +1,15 @@
-// Payments recording and manual ledger adjustments/waivers page
-import React, { useEffect, useState, useCallback } from "react";
+// Payments & ledger: record customer money and post manual adjustments or waivers.
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { AlertCircle, CheckCircle2, Receipt } from "lucide-react";
 import { apiRequest } from "../../api/client";
 import { formatMK, todayBlantyre } from "../../lib/format";
+import Topbar from "../../components/layout/Topbar";
+import Panel from "../../components/common/Panel";
+import DataTable, { type Column } from "../../components/common/DataTable";
+import SelectField from "../../components/forms/SelectField";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 interface CustomerOption {
   _id: string;
@@ -31,6 +39,8 @@ interface LedgerRow {
   customerId?: CustomerOption | string;
 }
 
+const METHODS = ["AIRTEL_MONEY", "MPAMBA", "CASH", "BANK", "OTHER"];
+
 export default function PaymentsPage() {
   const today = todayBlantyre();
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
@@ -40,15 +50,11 @@ export default function PaymentsPage() {
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
 
-  // Payment form state
   const [payCustomerId, setPayCustomerId] = useState("");
   const [payAmount, setPayAmount] = useState(20000);
-  const [payMethod, setPayMethod] = useState<
-    "AIRTEL_MONEY" | "MPAMBA" | "CASH" | "BANK" | "OTHER"
-  >("AIRTEL_MONEY");
+  const [payMethod, setPayMethod] = useState("AIRTEL_MONEY");
   const [payReference, setPayReference] = useState("");
 
-  // Ledger adjustment / waiver form state
   const [adjCustomerId, setAdjCustomerId] = useState("");
   const [adjAmount, setAdjAmount] = useState(-2000);
   const [adjReason, setAdjReason] = useState("");
@@ -71,11 +77,7 @@ export default function PaymentsPage() {
         setAdjCustomerId((prev) => prev || custs[0]._id);
       }
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to load payments and ledger",
-      );
+      setError(err instanceof Error ? err.message : "Failed to load payments and ledger");
     } finally {
       setLoading(false);
     }
@@ -85,7 +87,7 @@ export default function PaymentsPage() {
     loadAll();
   }, [loadAll]);
 
-  async function handleRecordPayment(e: React.FormEvent<HTMLFormElement>) {
+  async function handleRecordPayment(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setFeedback("");
     setError("");
@@ -108,7 +110,7 @@ export default function PaymentsPage() {
     }
   }
 
-  async function handleRecordAdjustment(e: React.FormEvent<HTMLFormElement>) {
+  async function handleRecordAdjustment(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setFeedback("");
     setError("");
@@ -124,253 +126,189 @@ export default function PaymentsPage() {
           reason: adjReason,
         },
       });
-      setFeedback(
-        `Recorded ledger adjustment of ${formatMK(Number(adjAmount))}.`,
-      );
+      setFeedback(`Posted ledger adjustment of ${formatMK(Number(adjAmount))}.`);
       setAdjReason("");
       await loadAll();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to record adjustment",
-      );
+      setError(err instanceof Error ? err.message : "Failed to record adjustment");
     }
   }
 
   function custLabel(c?: CustomerOption | string): string {
-    if (!c) return "-";
+    if (!c) return "–";
     if (typeof c === "string") return c;
-    return `${c.code} • ${c.name}`;
+    return `${c.code} · ${c.name}`;
   }
 
+  const customerOptions = customers.map((c) => ({
+    value: c._id,
+    label: `${c.code} — ${c.name}`,
+  }));
+
+  const paymentColumns: Column<PaymentRow>[] = [
+    { key: "paidDate", header: "Date", render: (d) => <span className="tabular-nums text-slate-600">{d.paidDate}</span> },
+    { key: "customer", header: "Customer", render: (d) => <span className="font-medium">{custLabel(d.customerId)}</span> },
+    { key: "method", header: "Method", render: (d) => <span className="text-slate-600">{d.method}</span> },
+    { key: "reference", header: "Reference", render: (d) => <span className="tabular-nums text-slate-500">{d.reference || "–"}</span> },
+    { key: "amount", header: "Amount", align: "right", render: (d) => <span className="font-semibold tabular-nums">{formatMK(d.amount)}</span> },
+  ];
+
+  const ledgerColumns: Column<LedgerRow>[] = [
+    { key: "date", header: "Date", render: (d) => <span className="tabular-nums text-slate-600">{d.date}</span> },
+    { key: "customer", header: "Customer", render: (d) => <span className="font-medium">{custLabel(d.customerId)}</span> },
+    { key: "type", header: "Type", render: (d) => <span className="text-slate-600">{d.type}</span> },
+    { key: "description", header: "Reason", render: (d) => <span className="text-slate-600">{d.description || d.reason || "–"}</span> },
+    {
+      key: "amount",
+      header: "Amount",
+      align: "right",
+      render: (d) => (
+        <span className={`font-semibold tabular-nums ${d.amount < 0 ? "text-red-600" : ""}`}>
+          {formatMK(d.amount)}
+        </span>
+      ),
+    },
+  ];
+
+  const todayTotal = payments.filter((p) => p.paidDate === today).reduce((s, p) => s + p.amount, 0);
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-900">
-          Payments &amp; Ledger
-        </h1>
-        <p className="text-sm text-slate-500">
-          Record customer payments and post manual ledger adjustments or fee
-          waivers.
-        </p>
-      </div>
+    <div>
+      <Topbar
+        title="Payments & ledger"
+        subtitle="Record money received and post adjustments or fee waivers"
+        rightSlot={
+          <span className="text-sm text-slate-500">
+            Today: <span className="font-semibold text-slate-900 tabular-nums">{formatMK(todayTotal)}</span>
+          </span>
+        }
+      />
 
-      {feedback && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
-          {feedback}
-        </div>
-      )}
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
-          {error}
-        </div>
-      )}
+      <div className="space-y-6">
+        {feedback && (
+          <p role="status" className="flex items-start gap-2 text-sm text-emerald-700">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            {feedback}
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="flex items-start gap-2 text-sm text-red-600">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            {error}
+          </p>
+        )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <form
-          onSubmit={handleRecordPayment}
-          className="rounded-xl border border-slate-200 bg-white p-4 space-y-3"
-        >
-          <h2 className="text-base font-semibold text-slate-900">
-            Record Payment
-          </h2>
-          <div>
-            <label className="block text-xs font-medium text-slate-700">
-              Customer
-            </label>
-            <select
-              value={payCustomerId}
-              onChange={(e) => setPayCustomerId(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            >
-              {customers.map((c) => (
-                <option key={c._id} value={c._id}>
-                  {c.code} - {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-slate-700">
-                Amount (Whole MK)
-              </label>
-              <input
-                type="number"
-                min={1}
-                step={1}
-                required
-                value={payAmount}
-                onChange={(e) => setPayAmount(Number(e.target.value))}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <Panel title="Record payment" action={<Receipt className="h-4 w-4 text-slate-400" aria-hidden />}>
+            <form onSubmit={handleRecordPayment} className="space-y-4 p-5">
+              <SelectField
+                id="payCustomer"
+                label="Customer"
+                value={payCustomerId}
+                onValueChange={setPayCustomerId}
+                placeholder={customerOptions.length ? undefined : "No customers yet"}
+                options={customerOptions}
               />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-700">
-                Method
-              </label>
-              <select
-                value={payMethod}
-                onChange={(e) =>
-                  setPayMethod(
-                    e.target.value as
-                      | "AIRTEL_MONEY"
-                      | "MPAMBA"
-                      | "CASH"
-                      | "BANK"
-                      | "OTHER",
-                  )
-                }
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              >
-                <option value="AIRTEL_MONEY">AIRTEL_MONEY</option>
-                <option value="MPAMBA">MPAMBA</option>
-                <option value="CASH">CASH</option>
-                <option value="BANK">BANK</option>
-                <option value="OTHER">OTHER</option>
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-700">
-              Reference / Receipt
-            </label>
-            <input
-              type="text"
-              value={payReference}
-              onChange={(e) => setPayReference(e.target.value)}
-              placeholder="Transaction ID or receipt number"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            />
-          </div>
-          <button
-            type="submit"
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-          >
-            Save Payment
-          </button>
-        </form>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="payAmount">Amount (MK)</Label>
+                  <Input
+                    id="payAmount"
+                    type="number"
+                    min={1}
+                    step={1}
+                    required
+                    value={payAmount}
+                    onChange={(e) => setPayAmount(Number(e.target.value))}
+                  />
+                </div>
+                <SelectField
+                  id="payMethod"
+                  label="Method"
+                  value={payMethod}
+                  onValueChange={setPayMethod}
+                  options={METHODS.map((m) => ({ value: m, label: m }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="payRef">Reference / receipt</Label>
+                <Input
+                  id="payRef"
+                  value={payReference}
+                  onChange={(e) => setPayReference(e.target.value)}
+                  placeholder="Transaction ID or receipt number"
+                />
+              </div>
+              <Button type="submit" disabled={!payCustomerId || payAmount <= 0}>
+                Save payment
+              </Button>
+            </form>
+          </Panel>
 
-        <form
-          onSubmit={handleRecordAdjustment}
-          className="rounded-xl border border-slate-200 bg-white p-4 space-y-3"
-        >
-          <h2 className="text-base font-semibold text-slate-900">
-            Adjustment / Fee Waiver
-          </h2>
-          <div>
-            <label className="block text-xs font-medium text-slate-700">
-              Customer
-            </label>
-            <select
-              value={adjCustomerId}
-              onChange={(e) => setAdjCustomerId(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            >
-              {customers.map((c) => (
-                <option key={c._id} value={c._id}>
-                  {c.code} - {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-700">
-              Adjustment Amount (Negative waives balance, e.g. -8000)
-            </label>
-            <input
-              type="number"
-              step={1}
-              required
-              value={adjAmount}
-              onChange={(e) => setAdjAmount(Number(e.target.value))}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-700">
-              Reason
-            </label>
-            <input
-              type="text"
-              required
-              value={adjReason}
-              onChange={(e) => setAdjReason(e.target.value)}
-              placeholder="e.g. Goodwill late fee waiver"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            />
-          </div>
-          <button
-            type="submit"
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-100"
-          >
-            Post Adjustment
-          </button>
-        </form>
-      </div>
-
-      {loading ? (
-        <div className="text-sm text-slate-600">Loading history...</div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="rounded-xl border border-slate-200 bg-white p-4 overflow-x-auto">
-            <h2 className="text-base font-semibold text-slate-900">
-              Recent Payments
-            </h2>
-            <table className="mt-3 w-full text-left border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-xs text-slate-500">
-                  <th className="py-2">Date</th>
-                  <th className="py-2">Customer</th>
-                  <th className="py-2">Method</th>
-                  <th className="py-2 text-right">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {payments.slice(0, 15).map((p) => (
-                  <tr key={p._id} className="border-b border-slate-100">
-                    <td className="py-2 font-mono text-xs">{p.paidDate}</td>
-                    <td className="py-2 text-xs">{custLabel(p.customerId)}</td>
-                    <td className="py-2 text-xs">{p.method}</td>
-                    <td className="py-2 text-right font-semibold">
-                      {formatMK(p.amount)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 bg-white p-4 overflow-x-auto">
-            <h2 className="text-base font-semibold text-slate-900">
-              Recent Ledger Entries
-            </h2>
-            <table className="mt-3 w-full text-left border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-xs text-slate-500">
-                  <th className="py-2">Date</th>
-                  <th className="py-2">Type</th>
-                  <th className="py-2">Description</th>
-                  <th className="py-2 text-right">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ledger.slice(0, 15).map((l) => (
-                  <tr key={l._id} className="border-b border-slate-100">
-                    <td className="py-2 font-mono text-xs">{l.date}</td>
-                    <td className="py-2 text-xs font-medium">{l.type}</td>
-                    <td className="py-2 text-xs text-slate-600">
-                      {l.description || l.reason || "-"}
-                    </td>
-                    <td className="py-2 text-right font-semibold">
-                      {formatMK(l.amount)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Panel title="Adjustment / fee waiver" action="Negative amounts reduce the balance">
+            <form onSubmit={handleRecordAdjustment} className="space-y-4 p-5">
+              <SelectField
+                id="adjCustomer"
+                label="Customer"
+                value={adjCustomerId}
+                onValueChange={setAdjCustomerId}
+                placeholder={customerOptions.length ? undefined : "No customers yet"}
+                options={customerOptions}
+              />
+              <div className="space-y-2">
+                <Label htmlFor="adjAmount">Amount (e.g. -8000)</Label>
+                <Input
+                  id="adjAmount"
+                  type="number"
+                  step={1}
+                  required
+                  value={adjAmount}
+                  onChange={(e) => setAdjAmount(Number(e.target.value))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="adjReason">Reason</Label>
+                <Input
+                  id="adjReason"
+                  required
+                  value={adjReason}
+                  onChange={(e) => setAdjReason(e.target.value)}
+                  placeholder="e.g. goodwill late fee waiver"
+                />
+              </div>
+              <Button type="submit" variant="outline" disabled={!adjCustomerId || !adjReason.trim()}>
+                Post adjustment
+              </Button>
+            </form>
+          </Panel>
         </div>
-      )}
+
+        {loading ? (
+          <p className="text-sm text-slate-500">Loading history…</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+            <Panel title="Recent payments" action={`${payments.length} total`}>
+              <DataTable
+                caption="Payments recorded"
+                columns={paymentColumns}
+                rows={payments.slice(0, 20)}
+                rowKey={(d) => d._id}
+                emptyText="No payments recorded yet."
+              />
+            </Panel>
+
+            <Panel title="Recent ledger entries" action={`${ledger.length} total`}>
+              <DataTable
+                caption="Manual ledger movements"
+                columns={ledgerColumns}
+                rows={ledger.slice(0, 20)}
+                rowKey={(d) => d._id}
+                emptyText="No manual ledger entries yet."
+              />
+            </Panel>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

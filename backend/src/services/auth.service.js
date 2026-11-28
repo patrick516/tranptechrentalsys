@@ -145,6 +145,83 @@ async function login({ email, password }, req) {
   return { user, accessToken, refreshToken, refreshExpiresAt: expiresAt };
 }
 
+// First-run setup: the portal may register exactly one account while the user
+// collection is empty. After that, registration is closed forever and every
+// other account is created by an administrator through POST /users.
+let setupLock = Promise.resolve();
+
+function withSetupLock(fn) {
+  const run = setupLock.then(
+    () => fn(),
+    () => fn(),
+  );
+  setupLock = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+async function getSetupStatus() {
+  const count = await User.countDocuments({});
+  return { needsSetup: count === 0 };
+}
+
+async function registerFirstAdmin({ name, email, password }, req) {
+  return withSetupLock(async () => {
+    const count = await User.countDocuments({});
+    if (count > 0) {
+      throw new AppError(
+        "Registration is closed: this system already has users. Ask an administrator to add your account.",
+        409,
+        "SETUP_COMPLETE",
+      );
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const exists = await User.findOne({ email: normalizedEmail }).lean();
+    if (exists) {
+      throw new AppError("Email already in use", 409, "DUPLICATE_EMAIL");
+    }
+
+    const passwordHash = await argon2.hash(password, {
+      type: argon2.argon2id,
+    });
+    const user = await User.create({
+      name: String(name).trim(),
+      email: normalizedEmail,
+      passwordHash,
+      role: "ADMIN",
+      status: "ACTIVE",
+    });
+
+    const accessToken = signAccessToken(user);
+    const { rawToken: refreshToken, expiresAt } = await issueRefreshToken(
+      user,
+      crypto.randomUUID(),
+      req,
+    );
+
+    await writeAuditLog({
+      userId: user._id,
+      action: "FIRST_ADMIN_REGISTERED",
+      entityType: "USER",
+      entityId: user._id,
+      after: { email: normalizedEmail, role: "ADMIN" },
+      req,
+    });
+
+    // Returned as a document: res.json() applies the schema's toJSON
+    // transform, which strips passwordHash and 2FA secrets.
+    return {
+      user,
+      accessToken,
+      refreshToken,
+      refreshExpiresAt: expiresAt,
+    };
+  });
+}
+
 async function refreshSession(rawRefreshToken, req) {
   if (!rawRefreshToken) {
     throw new AppError("Refresh token missing", 401, "UNAUTHORIZED");
@@ -266,6 +343,8 @@ async function changePassword(userId, { currentPassword, newPassword }, req) {
 
 module.exports = {
   login,
+  getSetupStatus,
+  registerFirstAdmin,
   refreshSession,
   logout,
   changePassword,

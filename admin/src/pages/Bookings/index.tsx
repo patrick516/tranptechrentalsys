@@ -1,387 +1,266 @@
-// Bookings management page: create, pickup, partial/full return, extend, and cancel rentals
-import React, { useEffect, useState, useCallback } from "react";
+// Bookings: list, filter, and manage rentals. Creating, extending, returning
+// and cancelling all happen in modal dialogs (components/bookings).
+import { useCallback, useEffect, useState } from "react";
+import { AlertCircle, CheckCircle2, Plus } from "lucide-react";
 import { apiRequest } from "../../api/client";
 import { formatMK, todayBlantyre } from "../../lib/format";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import Topbar from "../../components/layout/Topbar";
+import Panel from "../../components/common/Panel";
+import DataTable, { type Column } from "../../components/common/DataTable";
+import BookingStatusBadge from "../../components/bookings/BookingStatusBadge";
+import BookingRowActions from "../../components/bookings/BookingRowActions";
+import NewBookingDialog, { type NewBookingPayload } from "../../components/bookings/NewBookingDialog";
+import ExtendDialog, { type ExtendPayload } from "../../components/bookings/ExtendDialog";
+import ReturnDialog, { type ReturnPayload } from "../../components/bookings/ReturnDialog";
+import CancelDialog from "../../components/bookings/CancelDialog";
+import type { BookingItem, CustomerRef } from "../../components/bookings/bookingTypes";
 
-interface CustomerRef {
-  _id: string;
-  code: string;
-  name: string;
-  status: "ACTIVE" | "WATCHLIST" | "BLOCKED";
-}
+type DialogKind = "new" | "return" | "extend" | "cancel";
 
-interface BookingItem {
-  _id: string;
-  code: string;
-  customerId: CustomerRef | string;
-  status: "RESERVED" | "OUT" | "RETURNED" | "CANCELLED";
-  startDate: string;
-  endDate: string;
-  qty: number;
-  qtyOut: number;
-  qtyReturned: number;
-  qtyLost: number;
-  qtyDamaged: number;
-  ratePerChairPerDay: number;
-  lateFeePerDay: number;
-  venue: string;
+const STATUS_FILTERS = [
+  { value: "ALL", label: "All statuses" },
+  { value: "RESERVED", label: "Reserved" },
+  { value: "OUT", label: "Out" },
+  { value: "RETURNED", label: "Returned" },
+  { value: "CANCELLED", label: "Cancelled" },
+];
+
+function customerCell(customer: CustomerRef | string) {
+  if (typeof customer === "string") return <span className="text-slate-600">{customer}</span>;
+  return (
+    <div>
+      <p className="font-medium">{customer.name}</p>
+      <p className="text-xs text-slate-500">{customer.code}</p>
+    </div>
+  );
 }
 
 export default function BookingsPage() {
   const today = todayBlantyre();
   const [bookings, setBookings] = useState<BookingItem[]>([]);
   const [customers, setCustomers] = useState<CustomerRef[]>([]);
-  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
 
-  // Create booking form state
-  const [customerId, setCustomerId] = useState("");
-  const [startDate, setStartDate] = useState(today);
-  const [endDate, setEndDate] = useState(today);
-  const [qty, setQty] = useState(20);
-  const [venue, setVenue] = useState("");
-  const [notes, setNotes] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  // Which dialog is open, and for which booking (kept after closing so the
+  // dialog does not go blank while it fades out).
+  const [openDialog, setOpenDialog] = useState<DialogKind | null>(null);
+  const [selected, setSelected] = useState<BookingItem | null>(null);
 
-  const loadData = useCallback(async () => {
+  const loadBookings = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const query = statusFilter
-        ? `?status=${encodeURIComponent(statusFilter)}`
-        : "";
-      const [bookingsRes, customersRes] = await Promise.all([
-        apiRequest<{ data: BookingItem[] }>(`/bookings${query}`),
-        apiRequest<{ data: CustomerRef[] }>("/customers"),
-      ]);
-      const list = bookingsRes.data || [];
-      const custList = customersRes.data || [];
-      setBookings(list);
-      setCustomers(custList);
-      if (!customerId && custList.length > 0) {
-        setCustomerId(custList[0]._id);
-      }
+      const query = statusFilter !== "ALL" ? `?status=${encodeURIComponent(statusFilter)}` : "";
+      const res = await apiRequest<{ data: BookingItem[] }>(`/bookings${query}`);
+      setBookings(res.data || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load bookings");
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, customerId]);
+  }, [statusFilter]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    loadBookings();
+  }, [loadBookings]);
 
-  async function handleCreateBooking(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setSubmitting(true);
+  // Customers are only needed for the New booking form: load them once.
+  useEffect(() => {
+    apiRequest<{ data: CustomerRef[] }>("/customers")
+      .then((res) => setCustomers(res.data || []))
+      .catch(() => setError("Could not load the customer list"));
+  }, []);
+
+  function openFor(kind: DialogKind, booking: BookingItem | null = null) {
+    setFeedback("");
+    setSelected(booking);
+    setOpenDialog(kind);
+  }
+
+  // The handlers below throw on failure: the dialog shows the message itself.
+  async function createBooking(payload: NewBookingPayload) {
+    const res = await apiRequest<{ data: { booking: BookingItem; warnings?: string[] } }>("/bookings", {
+      method: "POST",
+      body: payload,
+    });
+    const warnings = res.data?.warnings?.length ? ` Warnings: ${res.data.warnings.join(", ")}.` : "";
+    setFeedback(`Created booking ${res.data.booking.code}.${warnings}`);
+    await loadBookings();
+  }
+
+  async function extendBooking(booking: BookingItem, payload: ExtendPayload) {
+    await apiRequest(`/bookings/${booking._id}/extend`, { method: "POST", body: payload });
+    setFeedback(`Extended ${booking.code} by ${payload.days} day${payload.days === 1 ? "" : "s"}.`);
+    await loadBookings();
+  }
+
+  async function returnBooking(booking: BookingItem, payload: ReturnPayload) {
+    await apiRequest(`/bookings/${booking._id}/return`, { method: "POST", body: payload });
+    setFeedback(`Recorded the return for ${booking.code}.`);
+    await loadBookings();
+  }
+
+  async function cancelBooking(booking: BookingItem, reason: string) {
+    await apiRequest(`/bookings/${booking._id}/cancel`, { method: "POST", body: { reason } });
+    setFeedback(`Cancelled ${booking.code}.`);
+    await loadBookings();
+  }
+
+  // Pick-up needs no form: it records today's date straight away.
+  async function pickUp(booking: BookingItem) {
     setFeedback("");
     setError("");
     try {
-      const res = await apiRequest<{
-        data: { booking: BookingItem; warnings?: string[] };
-      }>("/bookings", {
-        method: "POST",
-        body: {
-          customerId,
-          startDate,
-          endDate,
-          qty: Number(qty),
-          venue,
-          notes,
-        },
-      });
-      const warns = res.data?.warnings?.length
-        ? ` (Warnings: ${res.data.warnings.join(", ")})`
-        : "";
-      setFeedback(`Created booking ${res.data.booking.code}${warns}.`);
-      setVenue("");
-      setNotes("");
-      await loadData();
+      await apiRequest(`/bookings/${booking._id}/pickup`, { method: "POST", body: { pickupDate: today } });
+      setFeedback(`${booking.code} marked as picked up.`);
+      await loadBookings();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create booking");
-    } finally {
-      setSubmitting(false);
+      setError(err instanceof Error ? err.message : "Failed to record the pick-up");
     }
   }
 
-  async function handleAction(
-    id: string,
-    action: "pickup" | "extend" | "cancel",
-    body: unknown = {},
-  ) {
-    setFeedback("");
-    setError("");
-    try {
-      await apiRequest(`/bookings/${id}/${action}`, { method: "POST", body });
-      setFeedback(`Booking ${action} completed.`);
-      await loadData();
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : `Failed to ${action} booking`,
-      );
-    }
-  }
-
-  async function handleFullReturn(booking: BookingItem) {
-    setFeedback("");
-    setError("");
-    try {
-      await apiRequest(`/bookings/${booking._id}/return`, {
-        method: "POST",
-        body: {
-          returnDate: today,
-          qtyReturned: booking.qtyOut,
-          qtyLost: 0,
-          qtyDamaged: 0,
-        },
-      });
-      setFeedback(`Returned ${booking.qtyOut} chairs for ${booking.code}.`);
-      await loadData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to record return");
-    }
-  }
-
-  function getCustomerLabel(c: CustomerRef | string): string {
-    if (typeof c === "string") return c;
-    return `${c.code} • ${c.name} (${c.status})`;
-  }
+  const columns: Column<BookingItem>[] = [
+    { key: "code", header: "Booking", render: (b) => <span className="font-medium tabular-nums">{b.code}</span> },
+    { key: "customer", header: "Customer", render: (b) => customerCell(b.customerId) },
+    {
+      key: "dates",
+      header: "Dates",
+      render: (b) => (
+        <span className="whitespace-nowrap tabular-nums text-slate-600">
+          {b.startDate} → {b.endDate}
+        </span>
+      ),
+    },
+    {
+      key: "qty",
+      header: "Out / booked",
+      render: (b) => (
+        <span className="tabular-nums">
+          <span className="font-medium">{b.qtyOut}</span>
+          <span className="text-slate-500"> / {b.qty}</span>
+        </span>
+      ),
+    },
+    {
+      key: "rate",
+      header: "Rate",
+      render: (b) => <span className="whitespace-nowrap tabular-nums text-slate-600">{formatMK(b.ratePerChairPerDay)}/day</span>,
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (b) => <BookingStatusBadge status={b.status} overdue={b.status === "OUT" && b.endDate < today} />,
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      align: "right",
+      render: (b) => (
+        <BookingRowActions
+          booking={b}
+          onPickup={pickUp}
+          onReturn={(x) => openFor("return", x)}
+          onExtend={(x) => openFor("extend", x)}
+          onCancel={(x) => openFor("cancel", x)}
+        />
+      ),
+    },
+  ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Bookings</h1>
-          <p className="text-sm text-slate-500">
-            Reserve chairs, record pickups, extend dates, and process returns.
+    <div>
+      <Topbar
+        title="Bookings"
+        subtitle="Reserve chairs, record pick-ups, extend dates and process returns."
+        rightSlot={
+          <>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-40" aria-label="Filter by status">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STATUS_FILTERS.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button onClick={() => openFor("new")}>
+              <Plus aria-hidden />
+              New booking
+            </Button>
+          </>
+        }
+      />
+
+      <div className="space-y-4">
+        {feedback && (
+          <p role="status" className="flex items-start gap-2 text-sm text-green-700">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            {feedback}
           </p>
-        </div>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-        >
-          <option value="">All Statuses</option>
-          <option value="RESERVED">RESERVED</option>
-          <option value="OUT">OUT</option>
-          <option value="RETURNED">RETURNED</option>
-          <option value="CANCELLED">CANCELLED</option>
-        </select>
-      </div>
-
-      {feedback && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
-          {feedback}
-        </div>
-      )}
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      <form
-        onSubmit={handleCreateBooking}
-        className="rounded-xl border border-slate-200 bg-white p-4 grid grid-cols-1 md:grid-cols-6 gap-3 items-end"
-      >
-        <div className="md:col-span-2">
-          <label className="block text-xs font-medium text-slate-700">
-            Customer
-          </label>
-          <select
-            required
-            value={customerId}
-            onChange={(e) => setCustomerId(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          >
-            {customers.map((c) => (
-              <option key={c._id} value={c._id}>
-                {c.code} - {c.name} ({c.status})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-xs font-medium text-slate-700">
-            Start Date
-          </label>
-          <input
-            type="date"
-            required
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs font-medium text-slate-700">
-            End Date
-          </label>
-          <input
-            type="date"
-            required
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs font-medium text-slate-700">
-            Chairs Qty
-          </label>
-          <input
-            type="number"
-            min={1}
-            required
-            value={qty}
-            onChange={(e) => setQty(Number(e.target.value))}
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-        </div>
-
-        <div>
-          <button
-            type="submit"
-            disabled={submitting || !customerId}
-            className="w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
-          >
-            {submitting ? "Saving..." : "Create Booking"}
-          </button>
-        </div>
-
-        <div className="md:col-span-3">
-          <label className="block text-xs font-medium text-slate-700">
-            Venue / Event Location
-          </label>
-          <input
-            type="text"
-            value={venue}
-            onChange={(e) => setVenue(e.target.value)}
-            placeholder="e.g. Chichiri Hall, Blantyre"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-        </div>
-
-        <div className="md:col-span-3">
-          <label className="block text-xs font-medium text-slate-700">
-            Notes
-          </label>
-          <input
-            type="text"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Optional delivery or pickup notes"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-        </div>
-      </form>
-
-      <div className="rounded-xl border border-slate-200 bg-white p-4 overflow-x-auto">
-        {loading ? (
-          <div className="text-sm text-slate-600">Loading bookings...</div>
-        ) : (
-          <table className="w-full text-left border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-xs text-slate-500">
-                <th className="py-2 pr-3">Code</th>
-                <th className="py-2 pr-3">Customer</th>
-                <th className="py-2 pr-3">Dates</th>
-                <th className="py-2 pr-3">Qty / Out</th>
-                <th className="py-2 pr-3">Rate</th>
-                <th className="py-2 pr-3">Status</th>
-                <th className="py-2 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {bookings.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="py-4 text-center text-slate-500">
-                    No bookings found.
-                  </td>
-                </tr>
-              ) : (
-                bookings.map((b) => (
-                  <tr key={b._id} className="border-b border-slate-100">
-                    <td className="py-2.5 pr-3 font-mono text-xs">{b.code}</td>
-                    <td className="py-2.5 pr-3">
-                      {getCustomerLabel(b.customerId)}
-                    </td>
-                    <td className="py-2.5 pr-3 font-mono text-xs">
-                      {b.startDate} → {b.endDate}
-                    </td>
-                    <td className="py-2.5 pr-3">
-                      {b.qty} / <strong>{b.qtyOut}</strong>
-                    </td>
-                    <td className="py-2.5 pr-3">
-                      {formatMK(b.ratePerChairPerDay)}/d
-                    </td>
-                    <td className="py-2.5 pr-3 text-xs font-semibold">
-                      {b.status}
-                    </td>
-                    <td className="py-2.5 text-right space-x-1.5 whitespace-nowrap">
-                      {b.status === "RESERVED" && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleAction(b._id, "pickup", {
-                                pickupDate: today,
-                              })
-                            }
-                            className="rounded border border-slate-300 px-2.5 py-1 text-xs font-medium hover:bg-slate-100"
-                          >
-                            Pickup
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleAction(b._id, "cancel", {
-                                reason: "Cancelled in UI",
-                              })
-                            }
-                            className="rounded border border-red-200 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
-                          >
-                            Cancel
-                          </button>
-                        </>
-                      )}
-                      {b.status === "OUT" && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => handleFullReturn(b)}
-                            className="rounded bg-slate-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-slate-800"
-                          >
-                            Return All
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleAction(b._id, "extend", {
-                                days: 1,
-                                requestedDate: today,
-                              })
-                            }
-                            className="rounded border border-slate-300 px-2.5 py-1 text-xs font-medium hover:bg-slate-100"
-                          >
-                            +1 Day
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
         )}
+        {error && (
+          <p role="alert" className="flex items-start gap-2 text-sm text-red-600">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            {error}
+          </p>
+        )}
+
+        <Panel>
+          {loading && bookings.length === 0 ? (
+            <p role="status" className="py-8 text-center text-sm text-slate-500">
+              Loading bookings…
+            </p>
+          ) : (
+            <DataTable
+              caption="Bookings"
+              columns={columns}
+              rows={bookings}
+              rowKey={(b) => b._id}
+              emptyText="No bookings found."
+            />
+          )}
+        </Panel>
       </div>
+
+      <NewBookingDialog
+        key={openDialog ?? "closed"}
+        open={openDialog === "new"}
+        onOpenChange={(o) => !o && setOpenDialog(null)}
+        customers={customers}
+        today={today}
+        onCreate={createBooking}
+      />
+      <ExtendDialog
+        key={openDialog ?? "closed"}
+        open={openDialog === "extend"}
+        onOpenChange={(o) => !o && setOpenDialog(null)}
+        booking={selected}
+        today={today}
+        onExtend={extendBooking}
+      />
+      <ReturnDialog
+        key={openDialog ?? "closed"}
+        open={openDialog === "return"}
+        onOpenChange={(o) => !o && setOpenDialog(null)}
+        booking={selected}
+        today={today}
+        onReturn={returnBooking}
+      />
+      <CancelDialog
+        key={openDialog ?? "closed"}
+        open={openDialog === "cancel"}
+        onOpenChange={(o) => !o && setOpenDialog(null)}
+        booking={selected}
+        onCancelBooking={cancelBooking}
+      />
     </div>
   );
 }

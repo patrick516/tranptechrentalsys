@@ -1,7 +1,15 @@
-// Payment and chair-return promise tracking page styled with TranpTech brand tokens
-import React, { useEffect, useState, useCallback } from "react";
+// Promises: what a customer committed to, and whether they kept it.
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { apiRequest } from "../../api/client";
 import { formatMK, todayBlantyre } from "../../lib/format";
+import Topbar from "../../components/layout/Topbar";
+import Panel from "../../components/common/Panel";
+import DataTable, { type Column } from "../../components/common/DataTable";
+import SelectField from "../../components/forms/SelectField";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 interface CustomerRef {
   _id: string;
@@ -26,20 +34,30 @@ interface PromiseItem {
   notes: string;
 }
 
+const STATUS_STYLE: Record<string, string> = {
+  PENDING: "border-amber-200 bg-amber-50 text-amber-700",
+  KEPT: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  BROKEN: "border-red-200 bg-red-50 text-red-700",
+  CANCELLED: "border-slate-200 bg-slate-50 text-slate-600",
+};
+
+function customerLabel(c: CustomerRef | string): string {
+  return typeof c === "string" ? c : `${c.code} · ${c.name}`;
+}
+
 export default function PromisesPage() {
   const today = todayBlantyre();
   const [customers, setCustomers] = useState<CustomerRef[]>([]);
   const [promises, setPromises] = useState<PromiseItem[]>([]);
   const [overdueOnly, setOverdueOnly] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
 
-  // Create promise form state
   const [customerId, setCustomerId] = useState("");
   const [kind, setKind] = useState<"PAYMENT" | "RETURN">("PAYMENT");
   const [promisedDate, setPromisedDate] = useState(today);
-  const [promisedAmount, setPromisedAmount] = useState<string>("20000");
+  const [promisedAmount, setPromisedAmount] = useState("20000");
   const [notes, setNotes] = useState("");
 
   const loadData = useCallback(async () => {
@@ -54,9 +72,7 @@ export default function PromisesPage() {
       const custs = custRes.data || [];
       setCustomers(custs);
       setPromises(promRes.data || []);
-      if (custs.length > 0) {
-        setCustomerId((prev) => prev || custs[0]._id);
-      }
+      setCustomerId((prev) => prev || custs[0]?._id || "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load promises");
     } finally {
@@ -68,25 +84,16 @@ export default function PromisesPage() {
     loadData();
   }, [loadData]);
 
-  async function handleCreatePromise(e: React.FormEvent<HTMLFormElement>) {
+  async function handleCreatePromise(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setFeedback("");
     setError("");
     try {
       const parsedAmount =
-        kind === "PAYMENT" && promisedAmount.trim() !== ""
-          ? Number(promisedAmount)
-          : null;
-
+        kind === "PAYMENT" && promisedAmount.trim() !== "" ? Number(promisedAmount) : null;
       await apiRequest("/promises", {
         method: "POST",
-        body: {
-          customerId,
-          kind,
-          promisedDate,
-          promisedAmount: parsedAmount,
-          notes,
-        },
+        body: { customerId, kind, promisedDate, promisedAmount: parsedAmount, notes },
       });
       setFeedback("Recorded customer promise.");
       setNotes("");
@@ -96,218 +103,169 @@ export default function PromisesPage() {
     }
   }
 
-  async function handleStatusUpdate(
-    id: string,
-    status: "PENDING" | "KEPT" | "BROKEN" | "CANCELLED",
-  ) {
+  async function handleStatusUpdate(id: string, status: PromiseItem["status"]) {
     setFeedback("");
     setError("");
     try {
-      await apiRequest(`/promises/${id}/status`, {
-        method: "PATCH",
-        body: { status },
-      });
-      setFeedback(`Marked promise as ${status}.`);
+      await apiRequest(`/promises/${id}/status`, { method: "PATCH", body: { status } });
+      setFeedback(`Marked promise as ${status.toLowerCase()}.`);
       await loadData();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to update promise status",
-      );
+      setError(err instanceof Error ? err.message : "Failed to update promise status");
     }
   }
 
-  function formatCustomer(c: CustomerRef | string): string {
-    if (typeof c === "string") return c;
-    return `${c.code} • ${c.name}`;
-  }
+  const columns: Column<PromiseItem>[] = [
+    { key: "customer", header: "Customer", render: (d) => <span className="font-medium">{customerLabel(d.customerId)}</span> },
+    { key: "kind", header: "Kind", render: (d) => <span className="text-slate-600">{d.kind}</span> },
+    { key: "promisedDate", header: "Promised for", render: (d) => <span className="tabular-nums">{d.promisedDate}</span> },
+    {
+      key: "amount",
+      header: "Amount",
+      align: "right",
+      render: (d) => <span className="tabular-nums">{d.promisedAmount ? formatMK(d.promisedAmount) : "–"}</span>,
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (d) => (
+        <span className={`inline-flex rounded border px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[d.status] || ""}`}>
+          {d.status}
+        </span>
+      ),
+    },
+    { key: "notes", header: "Notes", render: (d) => <span className="text-slate-500">{d.notes || "–"}</span> },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      render: (d) =>
+        d.status === "PENDING" ? (
+          <span className="inline-flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => handleStatusUpdate(d._id, "KEPT")}>
+              Kept
+            </Button>
+            <Button size="sm" variant="destructive" onClick={() => handleStatusUpdate(d._id, "BROKEN")}>
+              Broken
+            </Button>
+          </span>
+        ) : (
+          <span className="text-xs text-slate-400">—</span>
+        ),
+    },
+  ];
+
+  const pending = promises.filter((p) => p.status === "PENDING").length;
+  const broken = promises.filter((p) => p.status === "BROKEN").length;
 
   return (
-    <div className="space-y-6 font-sans text-brand-navy">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-brand-navy">Promises</h1>
-          <p className="text-sm text-brand-navy/75">
-            Track customer commitments for payments and chair returns.
+    <div>
+      <Topbar
+        title="Promises"
+        subtitle="Customer commitments for payments and chair returns"
+        rightSlot={
+          <div className="flex items-center gap-2">
+            <input
+              id="overdueOnly"
+              type="checkbox"
+              checked={overdueOnly}
+              onChange={(e) => setOverdueOnly(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-brand-blue"
+            />
+            <Label htmlFor="overdueOnly" className="text-sm font-medium text-slate-700">
+              Overdue only
+            </Label>
+          </div>
+        }
+      />
+
+      <div className="space-y-6">
+        {feedback && (
+          <p role="status" className="flex items-start gap-2 text-sm text-emerald-700">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            {feedback}
           </p>
-        </div>
-        <label className="inline-flex items-center gap-2 text-sm font-medium text-brand-navy">
-          <input
-            type="checkbox"
-            checked={overdueOnly}
-            onChange={(e) => setOverdueOnly(e.target.checked)}
-            className="rounded border-brand-blue text-brand-blue focus:ring-brand-green"
-          />
-          Overdue only
-        </label>
-      </div>
-
-      {feedback && (
-        <div className="rounded-md border border-brand-green bg-brand-green px-4 py-2.5 text-sm font-medium text-white">
-          {feedback}
-        </div>
-      )}
-      {error && (
-        <div className="rounded-md border border-brand-navy bg-brand-navy px-4 py-2.5 text-sm text-white">
-          {error}
-        </div>
-      )}
-
-      <form
-        onSubmit={handleCreatePromise}
-        className="rounded-lg border border-brand-blue bg-white p-4 grid grid-cols-1 md:grid-cols-6 gap-3 items-end"
-      >
-        <div className="md:col-span-2">
-          <label className="block text-xs font-semibold text-brand-navy">
-            Customer
-          </label>
-          <select
-            value={customerId}
-            onChange={(e) => setCustomerId(e.target.value)}
-            className="mt-1 w-full rounded-md border border-brand-blue bg-white px-3 py-2 text-sm text-brand-navy focus:outline-none focus:ring-2 focus:ring-brand-green"
-          >
-            {customers.map((c) => (
-              <option key={c._id} value={c._id}>
-                {c.code} - {c.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-xs font-semibold text-brand-navy">
-            Type
-          </label>
-          <select
-            value={kind}
-            onChange={(e) => setKind(e.target.value as "PAYMENT" | "RETURN")}
-            className="mt-1 w-full rounded-md border border-brand-blue bg-white px-3 py-2 text-sm text-brand-navy focus:outline-none focus:ring-2 focus:ring-brand-green"
-          >
-            <option value="PAYMENT">PAYMENT</option>
-            <option value="RETURN">RETURN</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-xs font-semibold text-brand-navy">
-            Promised Date
-          </label>
-          <input
-            type="date"
-            required
-            value={promisedDate}
-            onChange={(e) => setPromisedDate(e.target.value)}
-            className="mt-1 w-full rounded-md border border-brand-blue bg-white px-3 py-2 text-sm text-brand-navy focus:outline-none focus:ring-2 focus:ring-brand-green"
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs font-semibold text-brand-navy">
-            {kind === "PAYMENT" ? "Amount (MK)" : "Amount (Optional)"}
-          </label>
-          <input
-            type="number"
-            min={1}
-            step={1}
-            disabled={kind === "RETURN"}
-            value={promisedAmount}
-            onChange={(e) => setPromisedAmount(e.target.value)}
-            className="mt-1 w-full rounded-md border border-brand-blue bg-white px-3 py-2 text-sm text-brand-navy disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-brand-green"
-          />
-        </div>
-
-        <div>
-          <button
-            type="submit"
-            disabled={!customerId}
-            className="w-full rounded-md bg-brand-blue px-4 py-2 text-sm font-semibold text-white hover:bg-brand-navy disabled:opacity-50"
-          >
-            Save Promise
-          </button>
-        </div>
-
-        <div className="md:col-span-6">
-          <label className="block text-xs font-semibold text-brand-navy">
-            Notes
-          </label>
-          <input
-            type="text"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Agreement details from call or WhatsApp"
-            className="mt-1 w-full rounded-md border border-brand-blue bg-white px-3 py-2 text-sm text-brand-navy focus:outline-none focus:ring-2 focus:ring-brand-green"
-          />
-        </div>
-      </form>
-
-      <div className="rounded-lg border border-brand-blue bg-white p-4 overflow-x-auto">
-        {loading ? (
-          <div className="text-sm text-brand-navy">Loading promises...</div>
-        ) : (
-          <table className="w-full text-left border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-brand-blue/30 text-xs font-semibold text-brand-blue">
-                <th className="py-2 pr-3">Customer</th>
-                <th className="py-2 pr-3">Kind</th>
-                <th className="py-2 pr-3">Promised Date</th>
-                <th className="py-2 pr-3 text-right">Amount</th>
-                <th className="py-2 pr-3">Status</th>
-                <th className="py-2 text-right">Update</th>
-              </tr>
-            </thead>
-            <tbody>
-              {promises.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={6}
-                    className="py-4 text-center text-brand-navy/70"
-                  >
-                    No promises found.
-                  </td>
-                </tr>
-              ) : (
-                promises.map((p) => (
-                  <tr key={p._id} className="border-b border-brand-blue/15">
-                    <td className="py-2.5 pr-3 font-medium">
-                      {formatCustomer(p.customerId)}
-                    </td>
-                    <td className="py-2.5 pr-3 text-xs font-semibold">
-                      {p.kind}
-                    </td>
-                    <td className="py-2.5 pr-3 font-mono text-xs">
-                      {p.promisedDate}
-                    </td>
-                    <td className="py-2.5 pr-3 text-right font-semibold">
-                      {p.promisedAmount ? formatMK(p.promisedAmount) : "-"}
-                    </td>
-                    <td className="py-2.5 pr-3 text-xs font-bold text-brand-blue">
-                      {p.status}
-                    </td>
-                    <td className="py-2.5 text-right space-x-1.5 whitespace-nowrap">
-                      {p.status === "PENDING" && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => handleStatusUpdate(p._id, "KEPT")}
-                            className="rounded-md bg-brand-green px-2.5 py-1 text-xs font-semibold text-white hover:bg-brand-navy"
-                          >
-                            Kept
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleStatusUpdate(p._id, "BROKEN")}
-                            className="rounded-md border border-brand-navy px-2.5 py-1 text-xs font-semibold text-brand-navy hover:bg-brand-navy hover:text-white"
-                          >
-                            Broken
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
         )}
+        {error && (
+          <p role="alert" className="flex items-start gap-2 text-sm text-red-600">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            {error}
+          </p>
+        )}
+
+        <Panel title="New promise">
+          <form onSubmit={handleCreatePromise} className="space-y-4 p-5">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+              <SelectField
+                id="promiseCustomer"
+                label="Customer"
+                value={customerId}
+                onValueChange={setCustomerId}
+                placeholder={customers.length ? undefined : "No customers yet"}
+                options={customers.map((c) => ({ value: c._id, label: `${c.code} — ${c.name}` }))}
+              />
+              <SelectField
+                id="promiseKind"
+                label="Type"
+                value={kind}
+                onValueChange={(v) => setKind(v as "PAYMENT" | "RETURN")}
+                options={[
+                  { value: "PAYMENT", label: "Payment" },
+                  { value: "RETURN", label: "Chair return" },
+                ]}
+              />
+              <div className="space-y-2">
+                <Label htmlFor="promisedDate">Promised for</Label>
+                <Input
+                  id="promisedDate"
+                  type="date"
+                  required
+                  value={promisedDate}
+                  onChange={(e) => setPromisedDate(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="promisedAmount">Amount (MK)</Label>
+                <Input
+                  id="promisedAmount"
+                  type="number"
+                  min={1}
+                  step={1}
+                  disabled={kind === "RETURN"}
+                  value={promisedAmount}
+                  onChange={(e) => setPromisedAmount(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="promiseNotes">Notes</Label>
+              <Input
+                id="promiseNotes"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="What was agreed on the call or WhatsApp"
+              />
+            </div>
+
+            <Button type="submit" disabled={!customerId}>
+              Save promise
+            </Button>
+          </form>
+        </Panel>
+
+        <Panel
+          title={overdueOnly ? "Overdue promises" : "All promises"}
+          action={`${pending} pending · ${broken} broken`}
+        >
+          <DataTable
+            caption="Customer promises"
+            columns={columns}
+            rows={promises}
+            rowKey={(d) => d._id}
+            emptyText="No promises recorded yet."
+          />
+        </Panel>
       </div>
     </div>
   );

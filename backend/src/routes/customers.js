@@ -7,6 +7,7 @@ const {
   updateCustomerSchema,
   statusChangeSchema,
   addContactSchema,
+  updateContactSchema,
 } = require("../validators/customers.validator");
 const customersController = require("../controllers/customers.controller");
 
@@ -47,6 +48,17 @@ router.post(
   requireRoles("ADMIN", "STAFF"),
   validate({ body: addContactSchema }),
   customersController.createContact,
+);
+router.patch(
+  "/:id/contacts/:contactId",
+  requireRoles("ADMIN", "STAFF"),
+  validate({ body: updateContactSchema }),
+  customersController.updateContact,
+);
+router.delete(
+  "/:id/contacts/:contactId",
+  requireRoles("ADMIN", "STAFF"),
+  customersController.removeContact,
 );
 router.delete("/:id", requireRoles("ADMIN"), customersController.archive);
 

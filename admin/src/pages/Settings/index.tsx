@@ -1,6 +1,13 @@
-// Business rate, late fee, grace period, and SMS cap configuration page
-import React, { useEffect, useState } from "react";
+// Settings: business rates, late fee defaults, grace days and messaging limits.
+import { useEffect, useState, type FormEvent } from "react";
+import { CheckCircle2, AlertCircle } from "lucide-react";
 import { apiRequest } from "../../api/client";
+import Topbar from "../../components/layout/Topbar";
+import Panel from "../../components/common/Panel";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import SelectField from "../../components/forms/SelectField";
 
 interface SettingsData {
   businessName: string;
@@ -11,45 +18,32 @@ interface SettingsData {
   smsMode: "live" | "log";
 }
 
+const DEFAULTS: SettingsData = {
+  businessName: "TranpTech Chair Rentals",
+  ratePerChairPerDay: 400,
+  lateFeePerDay: 2000,
+  graceDays: 0,
+  smsDailyCap: 100,
+  smsMode: "log",
+};
+
 export default function SettingsPage() {
-  const [form, setForm] = useState<SettingsData>({
-    businessName: "TranpTech Chair Rentals",
-    ratePerChairPerDay: 400,
-    lateFeePerDay: 2000,
-    graceDays: 0,
-    smsDailyCap: 100,
-    smsMode: "log",
-  });
+  const [form, setForm] = useState<SettingsData>(DEFAULTS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await apiRequest<{ data: SettingsData }>("/settings");
-        if (res.data) {
-          setForm({
-            businessName: res.data.businessName ?? "TranpTech Chair Rentals",
-            ratePerChairPerDay: res.data.ratePerChairPerDay ?? 400,
-            lateFeePerDay: res.data.lateFeePerDay ?? 2000,
-            graceDays: res.data.graceDays ?? 0,
-            smsDailyCap: res.data.smsDailyCap ?? 100,
-            smsMode: res.data.smsMode ?? "log",
-          });
-        }
-      } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Failed to load settings",
-        );
-      } finally {
-        setLoading(false);
-      }
-    })();
+    apiRequest<{ data: Partial<SettingsData> }>("/settings")
+      .then((res) => {
+        if (res.data) setForm({ ...DEFAULTS, ...res.data });
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load settings"))
+      .finally(() => setLoading(false));
   }, []);
 
-  async function handleSave(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSave(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSaving(true);
     setFeedback("");
@@ -66,9 +60,7 @@ export default function SettingsPage() {
           smsMode: form.smsMode,
         },
       });
-      setFeedback(
-        "Settings saved. Future bookings will use the updated rate snapshot.",
-      );
+      setFeedback("Settings saved. Future bookings use the updated rate snapshot.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save settings");
     } finally {
@@ -76,139 +68,116 @@ export default function SettingsPage() {
     }
   }
 
-  if (loading) {
-    return <div className="text-sm text-slate-600">Loading settings...</div>;
-  }
-
   return (
-    <div className="space-y-6 max-w-2xl">
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Settings</h1>
-        <p className="text-sm text-slate-500">
-          Configure default daily chair hire rates, late fee defaults, grace
-          days, and SMS limits.
-        </p>
+    <div>
+      <Topbar title="Settings" subtitle="Rates, late fees, grace days and messaging limits" />
+
+      <div className="max-w-3xl space-y-6">
+        {feedback && (
+          <p role="status" className="flex items-start gap-2 text-sm text-emerald-700">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            {feedback}
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="flex items-start gap-2 text-sm text-red-600">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            {error}
+          </p>
+        )}
+
+        {loading ? (
+          <p className="text-sm text-slate-500">Loading settings…</p>
+        ) : (
+          <form onSubmit={handleSave} className="space-y-6">
+            <Panel title="Business">
+              <div className="space-y-4 p-5">
+                <div className="space-y-2">
+                  <Label htmlFor="businessName">Business name</Label>
+                  <Input
+                    id="businessName"
+                    value={form.businessName}
+                    onChange={(e) => setForm({ ...form, businessName: e.target.value })}
+                  />
+                </div>
+              </div>
+            </Panel>
+
+            <Panel title="Pricing" action="Whole Kwacha, per chair per day">
+              <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor="rate">Hire rate / day</Label>
+                  <Input
+                    id="rate"
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={form.ratePerChairPerDay}
+                    onChange={(e) => setForm({ ...form, ratePerChairPerDay: Number(e.target.value) })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="lateFee">Late fee / day</Label>
+                  <Input
+                    id="lateFee"
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={form.lateFeePerDay}
+                    onChange={(e) => setForm({ ...form, lateFeePerDay: Number(e.target.value) })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="grace">Grace days</Label>
+                  <Input
+                    id="grace"
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={form.graceDays}
+                    onChange={(e) => setForm({ ...form, graceDays: Number(e.target.value) })}
+                  />
+                </div>
+              </div>
+            </Panel>
+
+            <Panel title="Messaging" action="WhatsApp sends from .env; SMS cap applies here">
+              <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="smsCap">Daily SMS cap</Label>
+                  <Input
+                    id="smsCap"
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={form.smsDailyCap}
+                    onChange={(e) => setForm({ ...form, smsDailyCap: Number(e.target.value) })}
+                  />
+                </div>
+                <SelectField
+                  id="smsMode"
+                  label="SMS mode"
+                  value={form.smsMode}
+                  onValueChange={(v) => setForm({ ...form, smsMode: v as SettingsData["smsMode"] })}
+                  options={[
+                    { value: "log", label: "log — record only, do not send" },
+                    { value: "live", label: "live — send for real" },
+                  ]}
+                />
+              </div>
+            </Panel>
+
+            <div className="flex items-center gap-3">
+              <Button type="submit" disabled={saving}>
+                {saving ? "Saving…" : "Save settings"}
+              </Button>
+              <p className="text-sm text-slate-500">
+                Each booking snapshots these values at creation time.
+              </p>
+            </div>
+          </form>
+        )}
       </div>
-
-      {feedback && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
-          {feedback}
-        </div>
-      )}
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      <form
-        onSubmit={handleSave}
-        className="rounded-xl border border-slate-200 bg-white p-4 space-y-4"
-      >
-        <div>
-          <label className="block text-xs font-medium text-slate-700">
-            Business Name
-          </label>
-          <input
-            type="text"
-            value={form.businessName}
-            onChange={(e) => setForm({ ...form, businessName: e.target.value })}
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div>
-            <label className="block text-xs font-medium text-slate-700">
-              Rate / Chair / Day (MK)
-            </label>
-            <input
-              type="number"
-              min={0}
-              step={1}
-              value={form.ratePerChairPerDay}
-              onChange={(e) =>
-                setForm({ ...form, ratePerChairPerDay: Number(e.target.value) })
-              }
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-slate-700">
-              Late Fee / Day (MK)
-            </label>
-            <input
-              type="number"
-              min={0}
-              step={1}
-              value={form.lateFeePerDay}
-              onChange={(e) =>
-                setForm({ ...form, lateFeePerDay: Number(e.target.value) })
-              }
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-slate-700">
-              Grace Days
-            </label>
-            <input
-              type="number"
-              min={0}
-              step={1}
-              value={form.graceDays}
-              onChange={(e) =>
-                setForm({ ...form, graceDays: Number(e.target.value) })
-              }
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-medium text-slate-700">
-              Daily SMS Cap
-            </label>
-            <input
-              type="number"
-              min={0}
-              step={1}
-              value={form.smsDailyCap}
-              onChange={(e) =>
-                setForm({ ...form, smsDailyCap: Number(e.target.value) })
-              }
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-slate-700">
-              SMS Mode
-            </label>
-            <select
-              value={form.smsMode}
-              onChange={(e) =>
-                setForm({ ...form, smsMode: e.target.value as "live" | "log" })
-              }
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            >
-              <option value="log">log</option>
-              <option value="live">live</option>
-            </select>
-          </div>
-        </div>
-
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
-        >
-          {saving ? "Saving..." : "Save Settings"}
-        </button>
-      </form>
     </div>
   );
 }

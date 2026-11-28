@@ -1,52 +1,43 @@
-import React, { useEffect, useState, useCallback } from "react";
-import { apiRequest } from "../../api/client";
+// Customers: search, add, change status, and open a customer's full page.
+import { useCallback, useEffect, useState } from "react";
+import { AlertCircle, CheckCircle2, Plus, Search } from "lucide-react";
+import { customersApi } from "../../api/customers";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import Topbar from "../../components/layout/Topbar";
+import Panel from "../../components/common/Panel";
+import DataTable, { type Column } from "../../components/common/DataTable";
+import CustomerStatus from "../../components/customers/CustomerStatus";
 import CustomerDetailDrawer from "../../components/customers/CustomerDetailDrawer";
-
-interface ContactItem {
-  name: string;
-  role?: string;
-  phone: string;
-  network?: string;
-  isPrimary?: boolean;
-}
-
-interface CustomerRow {
-  _id: string;
-  code: string;
-  name: string;
-  type: string;
-  status: "ACTIVE" | "WATCHLIST" | "BLOCKED";
-  area: string;
-  contacts: ContactItem[];
-}
+import NewCustomerDialog, { type NewCustomerPayload } from "../../components/customers/NewCustomerDialog";
+import ChangeStatusDialog from "../../components/customers/ChangeStatusDialog";
+import { typeLabel } from "../../components/customers/customerOptions";
+import type { Customer, CustomerStatus as StatusValue } from "../../types";
 
 export default function CustomersPage() {
-  const [customers, setCustomers] = useState<CustomerRow[]>([]);
-  const [search, setSearch] = useState("");
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [query, setQuery] = useState(""); // what is typed
+  const [search, setSearch] = useState(""); // what is searched (after a short pause)
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
+  const [error, setError] = useState("");
 
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(
-    null,
-  );
+  const [newOpen, setNewOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [statusTarget, setStatusTarget] = useState<Customer | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
 
-  // Quick add customer state
-  const [name, setName] = useState("");
-  const [type, setType] = useState<
-    "SCHOOL" | "CHURCH" | "INDIVIDUAL" | "BUSINESS" | "OTHER"
-  >("BUSINESS");
-  const [area, setArea] = useState("");
-  const [contactName, setContactName] = useState("");
-  const [contactPhone, setContactPhone] = useState("");
-  const [saving, setSaving] = useState(false);
+  // Wait 300 ms after typing stops, so the server is not asked on every key.
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(query.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [query]);
 
   const loadCustomers = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const q = search.trim() ? `?q=${encodeURIComponent(search.trim())}` : "";
-      const res = await apiRequest<{ data: CustomerRow[] }>(`/customers${q}`);
+      const res = await customersApi.list(search);
       setCustomers(res.data || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load customers");
@@ -59,243 +50,154 @@ export default function CustomersPage() {
     loadCustomers();
   }, [loadCustomers]);
 
-  async function handleCreateCustomer(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setSaving(true);
-    setError("");
-    setFeedback("");
-    try {
-      const res = await apiRequest<{ data: CustomerRow }>("/customers", {
-        method: "POST",
-        body: {
-          name,
-          type,
-          area,
-          contacts: [
-            { name: contactName, phone: contactPhone, isPrimary: true },
-          ],
-        },
-      });
-      setFeedback(`Added customer ${res.data.code} - ${res.data.name}.`);
-      setName("");
-      setArea("");
-      setContactName("");
-      setContactPhone("");
-      await loadCustomers();
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to create customer",
-      );
-    } finally {
-      setSaving(false);
-    }
+  // These throw on failure: the dialog shows the message itself.
+  async function createCustomer(payload: NewCustomerPayload) {
+    const res = await customersApi.create(payload);
+    setFeedback(`Added customer ${res.data.code} · ${res.data.name}.`);
+    await loadCustomers();
   }
 
-  async function handleStatusChange(
-    id: string,
-    status: "ACTIVE" | "WATCHLIST" | "BLOCKED",
-  ) {
-    setError("");
-    try {
-      await apiRequest(`/customers/${id}/status`, {
-        method: "POST",
-        body: { status },
-      });
-      await loadCustomers();
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to update customer status",
-      );
-    }
+  async function changeStatus(customer: Customer, status: StatusValue) {
+    await customersApi.setStatus(customer._id, status);
+    setFeedback(`${customer.name} is now ${status.toLowerCase()}.`);
+    await loadCustomers();
   }
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Customers</h1>
-          <p className="text-sm text-slate-500">
-            Manage customer profiles, primary contacts, and credit standing.
-          </p>
-        </div>
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search name, code, or phone..."
-          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm w-full sm:w-64"
-        />
-      </div>
-
-      {feedback && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
-          {feedback}
-        </div>
-      )}
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      <form
-        onSubmit={handleCreateCustomer}
-        className="rounded-xl border border-slate-200 bg-white p-4 grid grid-cols-1 md:grid-cols-6 gap-3 items-end"
-      >
-        <div className="md:col-span-2">
-          <label className="block text-xs font-medium text-slate-700">
-            Customer Name
-          </label>
-          <input
-            type="text"
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. St. Andrews School"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs font-medium text-slate-700">
-            Type
-          </label>
-          <select
-            value={type}
-            onChange={(e) =>
-              setType(
-                e.target.value as
-                  | "SCHOOL"
-                  | "CHURCH"
-                  | "INDIVIDUAL"
-                  | "BUSINESS"
-                  | "OTHER",
-              )
-            }
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          >
-            <option value="BUSINESS">BUSINESS</option>
-            <option value="SCHOOL">SCHOOL</option>
-            <option value="CHURCH">CHURCH</option>
-            <option value="INDIVIDUAL">INDIVIDUAL</option>
-            <option value="OTHER">OTHER</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-xs font-medium text-slate-700">
-            Contact Person
-          </label>
-          <input
-            type="text"
-            required
-            value={contactName}
-            onChange={(e) => setContactName(e.target.value)}
-            placeholder="Full name"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs font-medium text-slate-700">
-            Phone (+265 / 099 / 088)
-          </label>
-          <input
-            type="text"
-            required
-            value={contactPhone}
-            onChange={(e) => setContactPhone(e.target.value)}
-            placeholder="0995049331"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          />
-        </div>
-
+  const columns: Column<Customer>[] = [
+    { key: "code", header: "Code", render: (c) => <span className="font-medium tabular-nums">{c.code}</span> },
+    {
+      key: "name",
+      header: "Customer",
+      render: (c) => (
         <div>
           <button
-            type="submit"
-            disabled={saving}
-            className="w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+            type="button"
+            onClick={() => setDetailId(c._id)}
+            className="text-left font-medium hover:text-primary hover:underline"
           >
-            {saving ? "Adding..." : "Add Customer"}
+            {c.name}
           </button>
+          <p className="text-xs text-slate-500">
+            {typeLabel(c.type)}
+            {c.area ? ` · ${c.area}` : ""}
+          </p>
         </div>
-      </form>
-
-      <div className="rounded-xl border border-slate-200 bg-white p-4 overflow-x-auto">
-        {loading ? (
-          <div className="text-sm text-slate-600">Loading customers...</div>
+      ),
+    },
+    {
+      key: "contact",
+      header: "Primary contact",
+      render: (c) => {
+        const primary = c.contacts?.find((ct) => ct.isPrimary) ?? c.contacts?.[0];
+        return primary ? (
+          <div>
+            <p>{primary.name}</p>
+            <p className="text-xs tabular-nums text-slate-500">{primary.phone}</p>
+          </div>
         ) : (
-          <table className="w-full text-left border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-xs text-slate-500">
-                <th className="py-2 pr-3">Code</th>
-                <th className="py-2 pr-3">Name</th>
-                <th className="py-2 pr-3">Type</th>
-                <th className="py-2 pr-3">Primary Contact</th>
-                <th className="py-2 pr-3">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {customers.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="py-4 text-center text-slate-500">
-                    No customers found.
-                  </td>
-                </tr>
-              ) : (
-                customers.map((c) => {
-                  const primary =
-                    c.contacts?.find((ct) => ct.isPrimary) || c.contacts?.[0];
-                  return (
-                    <tr key={c._id} className="border-b border-brand-blue/15">
-                      <td className="py-2.5 pr-3 font-mono text-xs">
-                        {c.code}
-                      </td>
-                      <td className="py-2.5 pr-3 font-semibold text-brand-navy">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedCustomerId(c._id)}
-                          className="text-left text-brand-blue hover:underline font-semibold"
-                        >
-                          {c.name}
-                        </button>
-                      </td>
-                      <td className="py-2.5 pr-3 text-xs">{c.type}</td>
-                      <td className="py-2.5 pr-3 font-mono text-xs">
-                        {primary ? `${primary.name} (${primary.phone})` : "-"}
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <select
-                          value={c.status}
-                          onChange={(e) =>
-                            handleStatusChange(
-                              c._id,
-                              e.target.value as
-                                | "ACTIVE"
-                                | "WATCHLIST"
-                                | "BLOCKED",
-                            )
-                          }
-                          className="rounded border border-slate-300 px-2 py-1 text-xs"
-                        >
-                          <option value="ACTIVE">ACTIVE</option>
-                          <option value="WATCHLIST">WATCHLIST</option>
-                          <option value="BLOCKED">BLOCKED</option>
-                        </select>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+          <span className="text-slate-400">–</span>
+        );
+      },
+    },
+    { key: "status", header: "Status", render: (c) => <CustomerStatus status={c.status} /> },
+    {
+      key: "actions",
+      header: "Actions",
+      align: "right",
+      render: (c) => (
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="outline" onClick={() => setDetailId(c._id)}>
+            View
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setFeedback("");
+              setStatusTarget(c);
+              setStatusOpen(true);
+            }}
+          >
+            Change status
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <div>
+      <Topbar
+        title="Customers"
+        subtitle="Customer profiles, contacts and standing."
+        rightSlot={
+          <>
+            <div className="relative w-full sm:w-64">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+              <Input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search name, code or phone"
+                aria-label="Search customers"
+                className="pl-9"
+              />
+            </div>
+            <Button
+              onClick={() => {
+                setFeedback("");
+                setNewOpen(true);
+              }}
+            >
+              <Plus aria-hidden />
+              New customer
+            </Button>
+          </>
+        }
+      />
+
+      <div className="space-y-4">
+        {feedback && (
+          <p role="status" className="flex items-start gap-2 text-sm text-green-700">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            {feedback}
+          </p>
         )}
+        {error && (
+          <p role="alert" className="flex items-start gap-2 text-sm text-red-600">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            {error}
+          </p>
+        )}
+
+        <Panel>
+          {loading && customers.length === 0 ? (
+            <p role="status" className="py-8 text-center text-sm text-slate-500">
+              Loading customers…
+            </p>
+          ) : (
+            <div aria-busy={loading}>
+              <DataTable
+                caption="Customers"
+                columns={columns}
+                rows={customers}
+                rowKey={(c) => c._id}
+                emptyText={search ? `No customers match “${search}”.` : "No customers yet. Add your first customer."}
+              />
+            </div>
+          )}
+        </Panel>
       </div>
 
-      <CustomerDetailDrawer
-        customerId={selectedCustomerId}
-        onClose={() => setSelectedCustomerId(null)}
+      <NewCustomerDialog key={newOpen ? "open" : "closed"} open={newOpen} onOpenChange={setNewOpen} onCreate={createCustomer} />
+      <ChangeStatusDialog
+        key={statusTarget?._id ?? "closed"}
+        open={statusOpen}
+        onOpenChange={setStatusOpen}
+        customer={statusTarget}
+        onChange={changeStatus}
       />
+      <CustomerDetailDrawer key={detailId ?? "closed"} customerId={detailId} onClose={() => setDetailId(null)} />
     </div>
   );
 }

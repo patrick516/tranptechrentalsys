@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- variant maps and hooks are exported alongside components on purpose */
 // Authentication state provider managing login, logout, current user, and session refresh
 import React, {
   createContext,
@@ -16,10 +17,20 @@ export interface AuthUser {
   status: "ACTIVE" | "DISABLED";
 }
 
+interface RegisterInput {
+  name: string;
+  email: string;
+  password: string;
+}
+
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
+  // null = still checking. true = no users exist yet, so the portal must show
+  // the one-time register screen instead of the sign-in screen.
+  needsSetup: boolean | null;
   login: (email: string, password: string) => Promise<AuthUser>;
+  register: (input: RegisterInput) => Promise<AuthUser>;
   logout: () => Promise<void>;
 }
 
@@ -28,6 +39,21 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
+
+  // Asks the API whether the very first account still has to be created.
+  const loadSetup = useCallback(async () => {
+    try {
+      const res = await apiRequest<{ data: { needsSetup: boolean } }>(
+        "/auth/setup",
+        { retry: false },
+      );
+      setNeedsSetup(Boolean(res?.data?.needsSetup));
+    } catch {
+      // API unreachable: fall back to the normal sign-in screen.
+      setNeedsSetup(false);
+    }
+  }, []);
 
   const loadSession = useCallback(async () => {
     try {
@@ -57,7 +83,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     loadSession();
-  }, [loadSession]);
+    loadSetup();
+  }, [loadSession, loadSetup]);
 
   const login = async (email: string, password: string): Promise<AuthUser> => {
     const res = await apiRequest<{
@@ -69,6 +96,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     setAccessToken(res.data.accessToken);
     setUser(res.data.user);
+    return res.data.user;
+  };
+
+  // One-time first account. The API refuses once any user exists.
+  const register = async (input: RegisterInput): Promise<AuthUser> => {
+    const res = await apiRequest<{
+      data: { accessToken: string; user: AuthUser };
+    }>("/auth/register", {
+      method: "POST",
+      body: input,
+      retry: false,
+    });
+    setAccessToken(res.data.accessToken);
+    setUser(res.data.user);
+    setNeedsSetup(false);
     return res.data.user;
   };
 
@@ -84,7 +126,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider
+      value={{ user, loading, needsSetup, login, register, logout }}
+    >
       {children}
     </AuthContext.Provider>
   );

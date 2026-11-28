@@ -16,6 +16,7 @@ const contactInputSchema = z.object({
   isPrimary: z.boolean().optional().default(false),
   authorisesPayments: z.boolean().optional().default(false),
   smsOptOut: z.boolean().optional().default(false),
+  whatsappOptIn: z.boolean().optional().default(false),
   idType: z.string().trim().max(60).optional().default(""),
   notes: z.string().trim().max(500).optional().default(""),
 });

@@ -212,6 +212,7 @@ async function addContact(id, contactPayload, user, req) {
   customer.contacts.push({
     ...contactPayload,
     phone: normalizedPhone,
+    whatsappOptInAt: contactPayload.whatsappOptIn ? new Date() : null,
     network: detectNetwork(
       normalizedPhone,
       undefined,
@@ -226,6 +227,120 @@ async function addContact(id, contactPayload, user, req) {
     entityType: "CUSTOMER",
     entityId: customer._id,
     after: { phone: normalizedPhone, name: contactPayload.name },
+    req,
+  });
+
+  return customer;
+}
+
+async function updateContact(id, contactId, patch, user, req) {
+  const customer = await Customer.findById(id);
+  if (!customer) {
+    throw new AppError("Customer not found", 404, "NOT_FOUND");
+  }
+
+  const contact = customer.contacts.id(contactId);
+  if (!contact) {
+    throw new AppError("Contact not found", 404, "NOT_FOUND");
+  }
+
+  const before = {
+    name: contact.name,
+    phone: contact.phone,
+    isPrimary: contact.isPrimary,
+    authorisesPayments: contact.authorisesPayments,
+    smsOptOut: contact.smsOptOut,
+  };
+
+  const next = { ...patch };
+
+  if (Object.prototype.hasOwnProperty.call(next, "phone")) {
+    const normalizedPhone = normalizePhone(next.phone);
+    if (!normalizedPhone) {
+      throw new AppError(
+        "Invalid Malawi phone number",
+        400,
+        "VALIDATION_ERROR",
+      );
+    }
+    next.phone = normalizedPhone;
+    next.network = detectNetwork(
+      normalizedPhone,
+      undefined,
+      next.network || contact.network || null,
+    );
+  }
+
+  if (next.isPrimary === true) {
+    for (const c of customer.contacts) {
+      c.isPrimary = false;
+    }
+  }
+
+  Object.assign(contact, next);
+
+  if (Object.prototype.hasOwnProperty.call(next, "whatsappOptIn")) {
+    contact.whatsappOptInAt = next.whatsappOptIn ? new Date() : null;
+  }
+
+  if (!customer.contacts.some((c) => c.isPrimary)) {
+    customer.contacts[0].isPrimary = true;
+  }
+
+  await customer.save();
+  await writeAuditLog({
+    userId: user?._id || null,
+    action: "CUSTOMER_CONTACT_UPDATED",
+    entityType: "CUSTOMER",
+    entityId: customer._id,
+    before,
+    after: {
+      name: contact.name,
+      phone: contact.phone,
+      isPrimary: contact.isPrimary,
+      authorisesPayments: contact.authorisesPayments,
+      smsOptOut: contact.smsOptOut,
+    },
+    req,
+  });
+
+  return customer;
+}
+
+async function removeContact(id, contactId, user, req) {
+  const customer = await Customer.findById(id);
+  if (!customer) {
+    throw new AppError("Customer not found", 404, "NOT_FOUND");
+  }
+
+  if (customer.contacts.length <= 1) {
+    throw new AppError(
+      "A customer must keep at least one contact",
+      400,
+      "VALIDATION_ERROR",
+    );
+  }
+
+  const contact = customer.contacts.id(contactId);
+  if (!contact) {
+    throw new AppError("Contact not found", 404, "NOT_FOUND");
+  }
+
+  const before = { name: contact.name, phone: contact.phone };
+  const wasPrimary = contact.isPrimary;
+  contact.deleteOne();
+
+  if (wasPrimary && customer.contacts.length > 0) {
+    customer.contacts[0].isPrimary = true;
+  }
+
+  await customer.save();
+  await writeAuditLog({
+    userId: user?._id || null,
+    action: "CUSTOMER_CONTACT_REMOVED",
+    entityType: "CUSTOMER",
+    entityId: customer._id,
+    before,
     req,
   });
 
@@ -260,5 +375,7 @@ module.exports = {
   updateCustomer,
   setCustomerStatus,
   addContact,
+  updateContact,
+  removeContact,
   archiveCustomer,
 };

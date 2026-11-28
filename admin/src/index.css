@@ -18,3 +18,22 @@
     color: #101d29;
   }
 }
+
+/* Keep autofilled inputs white instead of Chrome's pale blue */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset;
+  -webkit-text-fill-color: #101d29;
+  transition: background-color 9999s ease-in-out 0s;
+}
+
+/* Hide scrollbars while keeping scrolling functional */
+* {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* Internet Explorer and Edge legacy */
+}
+
+*::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+}

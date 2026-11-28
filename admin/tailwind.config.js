@@ -49,28 +49,28 @@ export default {
         },
 
         secondary: {
-          DEFAULT: "#289030",
-          foreground: "#FFFFFF",
-        },
-
-        muted: {
-          DEFAULT: "#FFFFFF",
+          DEFAULT: "#F1F5F9",
           foreground: "#101D29",
         },
 
+        muted: {
+          DEFAULT: "#F8FAFC",
+          foreground: "#64748B",
+        },
+
         accent: {
-          DEFAULT: "#289030",
-          foreground: "#FFFFFF",
+          DEFAULT: "#F1F5F9",
+          foreground: "#101D29",
         },
 
         destructive: {
-          DEFAULT: "#101D29",
+          DEFAULT: "#DC2626",
           foreground: "#FFFFFF",
         },
 
-        border: "#005098",
-        input: "#005098",
-        ring: "#289030",
+        border: "#E2E8F0",
+        input: "#E2E8F0",
+        ring: "#005098",
 
         chart: {
           "1": "#005098",

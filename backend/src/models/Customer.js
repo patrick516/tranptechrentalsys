@@ -16,6 +16,8 @@ const contactSchema = new mongoose.Schema(
     smsOptOut: { type: Boolean, default: false },
     idType: { type: String, default: "", trim: true },
     idNumberEncrypted: { type: String, default: null },
+    whatsappOptIn: { type: Boolean, default: false },
+    whatsappOptInAt: { type: Date, default: null },
     idFrontDocumentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Document",

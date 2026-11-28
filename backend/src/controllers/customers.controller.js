@@ -73,6 +73,35 @@ async function createContact(req, res, next) {
   }
 }
 
+async function updateContact(req, res, next) {
+  try {
+    const customer = await customersService.updateContact(
+      req.params.id,
+      req.params.contactId,
+      req.body,
+      req.user,
+      req,
+    );
+    return res.status(200).json({ data: customer });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+async function removeContact(req, res, next) {
+  try {
+    const customer = await customersService.removeContact(
+      req.params.id,
+      req.params.contactId,
+      req.user,
+      req,
+    );
+    return res.status(200).json({ data: customer });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 async function archive(req, res, next) {
   try {
     const customer = await customersService.archiveCustomer(
@@ -93,5 +122,7 @@ module.exports = {
   update,
   updateStatus,
   createContact,
+  updateContact,
+  removeContact,
   archive,
 };

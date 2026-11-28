@@ -1,7 +1,18 @@
-// Stock availability checker, quick Add Chairs form, and stock movement ledger
-import React, { useEffect, useState, useCallback } from "react";
+// Stock: how many chairs exist, what is free day-by-day, and every movement
+// that changed the fleet.
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { AlertCircle, CheckCircle2, Plus } from "lucide-react";
 import { apiRequest } from "../../api/client";
 import { todayBlantyre } from "../../lib/format";
+import Topbar from "../../components/layout/Topbar";
+import Panel from "../../components/common/Panel";
+import DataTable, { type Column } from "../../components/common/DataTable";
+import SelectField from "../../components/forms/SelectField";
+import StatsCard from "../../components/common/StatsCard";
+import { BarsChart } from "../../components/charts";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 interface AvailabilityDay {
   date: string;
@@ -24,23 +35,28 @@ interface MovementRow {
   note: string;
 }
 
+const MOVEMENT_OPTIONS: { value: MovementRow["type"]; label: string }[] = [
+  { value: "PURCHASE", label: "PURCHASE (+)" },
+  { value: "FOUND", label: "FOUND (+)" },
+  { value: "REPAIRED", label: "REPAIRED (+)" },
+  { value: "LOST", label: "LOST (−)" },
+  { value: "DAMAGED", label: "DAMAGED (−)" },
+  { value: "WRITE_OFF", label: "WRITE_OFF (−)" },
+];
+
 export default function StockPage() {
   const today = todayBlantyre();
   const [fromDate, setFromDate] = useState(today);
   const [toDate, setToDate] = useState(today);
   const [report, setReport] = useState<AvailabilityReport | null>(null);
   const [movements, setMovements] = useState<MovementRow[]>([]);
-  const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
 
-  // Quick Add Chairs form state (PURCHASE)
   const [addChairsQty, setAddChairsQty] = useState(50);
   const [addChairsDate, setAddChairsDate] = useState(today);
   const [addChairsNote, setAddChairsNote] = useState("");
-  const [addingChairs, setAddingChairs] = useState(false);
 
-  // General stock movement form state
   const [type, setType] = useState<MovementRow["type"]>("PURCHASE");
   const [qty, setQty] = useState(20);
   const [movDate, setMovDate] = useState(today);
@@ -48,7 +64,6 @@ export default function StockPage() {
   const [saving, setSaving] = useState(false);
 
   const loadStock = useCallback(async () => {
-    setLoading(true);
     setError("");
     try {
       const [availRes, movRes] = await Promise.all([
@@ -61,8 +76,6 @@ export default function StockPage() {
       setMovements(movRes.data || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load stock");
-    } finally {
-      setLoading(false);
     }
   }, [fromDate, toDate]);
 
@@ -70,9 +83,8 @@ export default function StockPage() {
     loadStock();
   }, [loadStock]);
 
-  async function handleQuickAddChairs(e: React.FormEvent<HTMLFormElement>) {
+  async function handleQuickAddChairs(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setAddingChairs(true);
     setFeedback("");
     setError("");
     try {
@@ -90,12 +102,10 @@ export default function StockPage() {
       await loadStock();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add chairs");
-    } finally {
-      setAddingChairs(false);
     }
   }
 
-  async function handleAddMovement(e: React.FormEvent<HTMLFormElement>) {
+  async function handleAddMovement(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSaving(true);
     setFeedback("");
@@ -103,254 +113,226 @@ export default function StockPage() {
     try {
       await apiRequest("/stock/movements", {
         method: "POST",
-        body: {
-          type,
-          qty: Number(qty),
-          date: movDate,
-          note: note.trim(),
-        },
+        body: { type, qty: Number(qty), date: movDate, note: note.trim() },
       });
       setFeedback(`Recorded ${type} movement of ${Number(qty)} chairs.`);
       setNote("");
       await loadStock();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to record stock movement",
-      );
+      setError(err instanceof Error ? err.message : "Failed to record stock movement");
     } finally {
       setSaving(false);
     }
   }
 
+  const days = report?.days || [];
+  const chartData = days.slice(-31).map((d) => ({
+    label: d.date.slice(5),
+    value: d.available,
+  }));
+
+  const availabilityColumns: Column<AvailabilityDay>[] = [
+    { key: "date", header: "Date", render: (d) => <span className="tabular-nums text-slate-600">{d.date}</span> },
+    { key: "total", header: "Owned", align: "right", render: (d) => <span className="tabular-nums text-slate-600">{d.totalOwned}</span> },
+    { key: "out", header: "Reserved / out", align: "right", render: (d) => <span className="tabular-nums">{d.reservedOrOut}</span> },
+    {
+      key: "available",
+      header: "Available",
+      align: "right",
+      render: (d) => (
+        <span className={`font-semibold tabular-nums ${d.available === 0 ? "text-red-600" : ""}`}>
+          {d.available}
+        </span>
+      ),
+    },
+  ];
+
+  const movementColumns: Column<MovementRow>[] = [
+    { key: "date", header: "Date", render: (d) => <span className="tabular-nums text-slate-600">{d.date}</span> },
+    {
+      key: "type",
+      header: "Type",
+      render: (d) => (
+        <span className={`text-slate-700 ${d.type === "LOST" || d.type === "DAMAGED" || d.type === "WRITE_OFF" ? "text-red-600" : ""}`}>
+          {d.type}
+        </span>
+      ),
+    },
+    { key: "qty", header: "Qty", align: "right", render: (d) => <span className="font-semibold tabular-nums">{d.qty}</span> },
+    { key: "note", header: "Note", render: (d) => <span className="text-slate-500">{d.note || "–"}</span> },
+  ];
+
   return (
-    <div className="space-y-6 font-sans text-brand-navy">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-brand-navy">Chair Stock</h1>
-          <p className="text-sm text-brand-navy/75">
-            Total Owned: <strong>{report?.totalOwned ?? 0}</strong> • Min
-            Available in Range: <strong>{report?.minAvailable ?? 0}</strong>
+    <div>
+      <Topbar
+        title="Chair stock"
+        subtitle="Inventory, day-by-day availability and movement ledger"
+        rightSlot={
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <Label htmlFor="stockFrom" className="mb-1.5 block text-xs text-slate-500">
+                From
+              </Label>
+              <Input id="stockFrom" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+            </div>
+            <div>
+              <Label htmlFor="stockTo" className="mb-1.5 block text-xs text-slate-500">
+                To
+              </Label>
+              <Input id="stockTo" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+            </div>
+          </div>
+        }
+      />
+
+      <div className="space-y-6">
+        {feedback && (
+          <p role="status" className="flex items-start gap-2 text-sm text-emerald-700">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            {feedback}
           </p>
-        </div>
+        )}
+        {error && (
+          <p role="alert" className="flex items-start gap-2 text-sm text-red-600">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            {error}
+          </p>
+        )}
 
-        <div className="flex items-center gap-2">
-          <input
-            type="date"
-            value={fromDate}
-            onChange={(e) => setFromDate(e.target.value)}
-            className="rounded-md border border-brand-blue bg-white px-3 py-1.5 text-sm text-brand-navy"
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <StatsCard label="Chairs owned" value={report?.totalOwned ?? 0} />
+          <StatsCard
+            label="Free at the worst moment in range"
+            value={report?.minAvailable ?? 0}
+            subtext={fromDate === toDate ? fromDate : `${fromDate} → ${toDate}`}
           />
-          <span className="text-xs text-brand-navy/70">to</span>
-          <input
-            type="date"
-            value={toDate}
-            onChange={(e) => setToDate(e.target.value)}
-            className="rounded-md border border-brand-blue bg-white px-3 py-1.5 text-sm text-brand-navy"
-          />
-        </div>
-      </div>
-
-      {feedback && (
-        <div className="rounded-md border border-brand-green bg-brand-green px-4 py-2.5 text-sm font-medium text-white">
-          {feedback}
-        </div>
-      )}
-      {error && (
-        <div className="rounded-md border border-brand-navy bg-brand-navy px-4 py-2.5 text-sm text-white">
-          {error}
-        </div>
-      )}
-
-      {/* Dedicated Add Chairs Card */}
-      <form
-        onSubmit={handleQuickAddChairs}
-        className="rounded-lg border border-brand-green bg-white p-4 grid grid-cols-1 md:grid-cols-5 gap-3 items-end"
-      >
-        <div>
-          <label className="block text-xs font-bold text-brand-green">
-            Add Chairs Qty (Purchase)
-          </label>
-          <input
-            type="number"
-            min={1}
-            step={1}
-            required
-            value={addChairsQty}
-            onChange={(e) => setAddChairsQty(Number(e.target.value))}
-            className="mt-1 w-full rounded-md border border-brand-blue bg-white px-3 py-2 text-sm text-brand-navy focus:outline-none focus:ring-2 focus:ring-brand-green"
+          <StatsCard
+            label="Movements recorded"
+            value={movements.length}
+            subtext="lifetime stock ledger"
           />
         </div>
 
-        <div>
-          <label className="block text-xs font-semibold text-brand-navy">
-            Date
-          </label>
-          <input
-            type="date"
-            required
-            value={addChairsDate}
-            onChange={(e) => setAddChairsDate(e.target.value)}
-            className="mt-1 w-full rounded-md border border-brand-blue bg-white px-3 py-2 text-sm text-brand-navy"
+        <Panel title="Add chairs to inventory" action="Records a PURCHASE movement">
+          <form onSubmit={handleQuickAddChairs} className="grid grid-cols-1 gap-4 p-5 md:grid-cols-5">
+            <div className="space-y-2">
+              <Label htmlFor="addQty">Quantity</Label>
+              <Input
+                id="addQty"
+                type="number"
+                min={1}
+                step={1}
+                required
+                value={addChairsQty}
+                onChange={(e) => setAddChairsQty(Number(e.target.value))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="addDate">Date</Label>
+              <Input
+                id="addDate"
+                type="date"
+                required
+                value={addChairsDate}
+                onChange={(e) => setAddChairsDate(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="addNote">Supplier / batch note</Label>
+              <Input
+                id="addNote"
+                value={addChairsNote}
+                onChange={(e) => setAddChairsNote(e.target.value)}
+                placeholder="e.g. bought 50 plastic chairs in Limbe"
+              />
+            </div>
+            <div className="flex items-end">
+              <Button type="submit" className="w-full">
+                <Plus aria-hidden />
+                Add chairs
+              </Button>
+            </div>
+          </form>
+        </Panel>
+
+        <Panel title="Record a stock movement" action="Negative types reduce the fleet">
+          <form onSubmit={handleAddMovement} className="grid grid-cols-1 gap-4 p-5 md:grid-cols-6">
+            <SelectField
+              id="movType"
+              label="Type"
+              value={type}
+              onValueChange={(v) => setType(v as MovementRow["type"])}
+              options={MOVEMENT_OPTIONS}
+              className="md:col-span-1"
+            />
+            <div className="space-y-2">
+              <Label htmlFor="movQty">Quantity</Label>
+              <Input
+                id="movQty"
+                type="number"
+                min={1}
+                step={1}
+                required
+                value={qty}
+                onChange={(e) => setQty(Number(e.target.value))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="movDate">Date</Label>
+              <Input
+                id="movDate"
+                type="date"
+                required
+                value={movDate}
+                onChange={(e) => setMovDate(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="movNote">Note</Label>
+              <Input
+                id="movNote"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Reason for the movement"
+              />
+            </div>
+            <div className="flex items-end">
+              <Button type="submit" variant="outline" className="w-full" disabled={saving}>
+                {saving ? "Saving…" : "Record"}
+              </Button>
+            </div>
+          </form>
+        </Panel>
+
+        <Panel title="Availability by day" action={days.length ? `${fromDate} → ${toDate}` : undefined}>
+          <div className="p-5">
+            <BarsChart
+              data={chartData}
+              height={280}
+              yLegend="chairs free"
+              formatValue={(v) => String(v)}
+            />
+          </div>
+          <div className="border-t border-slate-100">
+            <DataTable
+              caption="Daily availability"
+              columns={availabilityColumns}
+              rows={days}
+              rowKey={(d) => d.date}
+              emptyText="No availability data for this range."
+            />
+          </div>
+        </Panel>
+
+        <Panel title="Recent stock movements" action={`${movements.length} total`}>
+          <DataTable
+            caption="Stock movement ledger"
+            columns={movementColumns}
+            rows={movements.slice(0, 25)}
+            rowKey={(d) => d._id}
+            emptyText="No stock movements yet."
           />
-        </div>
-
-        <div className="md:col-span-2">
-          <label className="block text-xs font-semibold text-brand-navy">
-            Supplier / Batch Note
-          </label>
-          <input
-            type="text"
-            value={addChairsNote}
-            onChange={(e) => setAddChairsNote(e.target.value)}
-            placeholder="e.g. Bought 50 plastic chairs in Limbe"
-            className="mt-1 w-full rounded-md border border-brand-blue bg-white px-3 py-2 text-sm text-brand-navy"
-          />
-        </div>
-
-        <div>
-          <button
-            type="submit"
-            disabled={addingChairs}
-            className="w-full rounded-md bg-brand-green px-4 py-2 text-sm font-semibold text-white hover:bg-brand-navy disabled:opacity-50"
-          >
-            {addingChairs ? "Adding..." : "+ Add Chairs"}
-          </button>
-        </div>
-      </form>
-
-      {/* General Stock Adjustment / Movement Form */}
-      <form
-        onSubmit={handleAddMovement}
-        className="rounded-lg border border-brand-blue bg-white p-4 grid grid-cols-1 md:grid-cols-6 gap-3 items-end"
-      >
-        <div>
-          <label className="block text-xs font-semibold text-brand-navy">
-            Movement Type
-          </label>
-          <select
-            value={type}
-            onChange={(e) => setType(e.target.value as MovementRow["type"])}
-            className="mt-1 w-full rounded-md border border-brand-blue bg-white px-3 py-2 text-sm text-brand-navy"
-          >
-            <option value="PURCHASE">PURCHASE (+)</option>
-            <option value="FOUND">FOUND (+)</option>
-            <option value="REPAIRED">REPAIRED (+)</option>
-            <option value="LOST">LOST (-)</option>
-            <option value="DAMAGED">DAMAGED (-)</option>
-            <option value="WRITE_OFF">WRITE_OFF (-)</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-xs font-semibold text-brand-navy">
-            Quantity
-          </label>
-          <input
-            type="number"
-            min={1}
-            step={1}
-            required
-            value={qty}
-            onChange={(e) => setQty(Number(e.target.value))}
-            className="mt-1 w-full rounded-md border border-brand-blue bg-white px-3 py-2 text-sm text-brand-navy"
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs font-semibold text-brand-navy">
-            Date
-          </label>
-          <input
-            type="date"
-            required
-            value={movDate}
-            onChange={(e) => setMovDate(e.target.value)}
-            className="mt-1 w-full rounded-md border border-brand-blue bg-white px-3 py-2 text-sm text-brand-navy"
-          />
-        </div>
-
-        <div className="md:col-span-2">
-          <label className="block text-xs font-semibold text-brand-navy">
-            Note
-          </label>
-          <input
-            type="text"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Reason for movement"
-            className="mt-1 w-full rounded-md border border-brand-blue bg-white px-3 py-2 text-sm text-brand-navy"
-          />
-        </div>
-
-        <div>
-          <button
-            type="submit"
-            disabled={saving}
-            className="w-full rounded-md bg-brand-blue px-4 py-2 text-sm font-semibold text-white hover:bg-brand-navy disabled:opacity-50"
-          >
-            {saving ? "Saving..." : "Record Movement"}
-          </button>
-        </div>
-      </form>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="rounded-lg border border-brand-blue bg-white p-4">
-          <h2 className="text-base font-bold text-brand-navy">
-            Daily Availability Breakdown
-          </h2>
-          {loading ? (
-            <div className="mt-3 text-sm text-brand-navy">Loading...</div>
-          ) : (
-            <table className="mt-3 w-full text-left border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-brand-blue/30 text-xs font-semibold text-brand-blue">
-                  <th className="py-2">Date</th>
-                  <th className="py-2 text-right">Reserved / Out</th>
-                  <th className="py-2 text-right">Available</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(report?.days || []).map((d) => (
-                  <tr key={d.date} className="border-b border-brand-blue/15">
-                    <td className="py-2 font-mono text-xs">{d.date}</td>
-                    <td className="py-2 text-right">{d.reservedOrOut}</td>
-                    <td className="py-2 text-right font-bold text-brand-green">
-                      {d.available}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        <div className="rounded-lg border border-brand-blue bg-white p-4">
-          <h2 className="text-base font-bold text-brand-navy">
-            Recent Stock Movements
-          </h2>
-          <table className="mt-3 w-full text-left border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-brand-blue/30 text-xs font-semibold text-brand-blue">
-                <th className="py-2">Date</th>
-                <th className="py-2">Type</th>
-                <th className="py-2 text-right">Qty</th>
-                <th className="py-2 pl-3">Note</th>
-              </tr>
-            </thead>
-            <tbody>
-              {movements.slice(0, 15).map((m) => (
-                <tr key={m._id} className="border-b border-brand-blue/15">
-                  <td className="py-2 font-mono text-xs">{m.date}</td>
-                  <td className="py-2 text-xs font-semibold">{m.type}</td>
-                  <td className="py-2 text-right font-bold">{m.qty}</td>
-                  <td className="py-2 pl-3 text-xs text-brand-navy/75">
-                    {m.note || "-"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        </Panel>
       </div>
     </div>
   );

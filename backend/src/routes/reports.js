@@ -14,6 +14,7 @@ const { toBusinessDate } = require("../utils/dates");
 const { calcAvailabilityRange } = require("../services/stock");
 const { calcBalance } = require("../services/ledger.calc");
 const { runDailyLedgerJob } = require("../jobs/dailyLedgerJob");
+const reportStats = require("../services/reportStats");
 
 const router = express.Router();
 
@@ -169,6 +170,136 @@ router.post(
     try {
       const result = await runDailyLedgerJob(req.body.businessDate || null);
       return res.status(200).json({ data: result });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// --- Range based reports -----------------------------------------------------
+const rangeQuerySchema = z.object({
+  from: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  to: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  period: z.enum(["week", "month", "custom"]).optional(),
+});
+
+function rangeFromQuery(query) {
+  if (query.period === "week") {
+    const end = toBusinessDate();
+    const d = new Date(`${end}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 6);
+    return { from: query.from || d.toISOString().slice(0, 10), to: query.to || end };
+  }
+  if (query.period === "month") {
+    const end = toBusinessDate();
+    return { from: query.from || `${end.slice(0, 7)}-01`, to: query.to || end };
+  }
+  return { from: query.from, to: query.to };
+}
+
+router.get(
+  "/trends",
+  requireRoles("ADMIN", "STAFF", "VIEWER"),
+  validate({ query: rangeQuerySchema }),
+  async (req, res, next) => {
+    try {
+      const facts = await reportStats.loadFacts();
+      const data = reportStats.getTrends(rangeFromQuery(req.query), facts);
+      return res.status(200).json({ data });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+router.get(
+  "/summary",
+  requireRoles("ADMIN", "STAFF", "VIEWER"),
+  validate({ query: rangeQuerySchema }),
+  async (req, res, next) => {
+    try {
+      const facts = await reportStats.loadFacts();
+      const data = reportStats.getSummary(rangeFromQuery(req.query), facts);
+      return res.status(200).json({ data });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+router.get(
+  "/ageing",
+  requireRoles("ADMIN", "STAFF", "VIEWER"),
+  async (req, res, next) => {
+    try {
+      const facts = await reportStats.loadFacts();
+      const data = reportStats.getAgeing(facts, toBusinessDate());
+      return res.status(200).json({ data });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+router.get(
+  "/collections",
+  requireRoles("ADMIN", "STAFF", "VIEWER"),
+  validate({ query: rangeQuerySchema }),
+  async (req, res, next) => {
+    try {
+      const facts = await reportStats.loadFacts();
+      const data = reportStats.getCollections(rangeFromQuery(req.query), facts);
+      return res.status(200).json({ data });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+router.get(
+  "/utilisation",
+  requireRoles("ADMIN", "STAFF", "VIEWER"),
+  validate({ query: rangeQuerySchema }),
+  async (req, res, next) => {
+    try {
+      const facts = await reportStats.loadFacts();
+      const data = reportStats.getUtilisation(rangeFromQuery(req.query), facts);
+      return res.status(200).json({ data });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+router.get(
+  "/export",
+  requireRoles("ADMIN", "VIEWER"),
+  validate({ query: rangeQuerySchema.extend({ report: z.string().max(40) }) }),
+  async (req, res, next) => {
+    try {
+      const report = req.query.report || "summary";
+      if (!reportStats.CSV_REPORTS.includes(report)) {
+        return next(
+          new Error(`Unknown report "${report}" — expected one of ${reportStats.CSV_REPORTS.join(", ")}`),
+        );
+      }
+      const facts = await reportStats.loadFacts();
+      const range = rangeFromQuery(req.query);
+      const csv = reportStats.buildCsv(report, range, facts);
+      const from = range.from || "";
+      const to = range.to || "";
+      res.set("Content-Type", "text/csv; charset=utf-8");
+      res.set(
+        "Content-Disposition",
+        `attachment; filename="${report}_${from}_${to}.csv"`,
+      );
+      return res.status(200).send(csv);
     } catch (err) {
       return next(err);
     }

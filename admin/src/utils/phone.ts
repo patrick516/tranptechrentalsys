@@ -6,3 +6,8 @@ export function normalizeMalawiPhone(raw: string = ""): string {
   if (digits.length === 9) return `+265${digits}`;
   return String(raw).trim();
 }
+
+// True when the text can be turned into +265 followed by nine digits.
+export function isMalawiPhone(raw: string = ""): boolean {
+  return /^\+265\d{9}$/.test(normalizeMalawiPhone(raw));
+}
