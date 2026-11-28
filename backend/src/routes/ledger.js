@@ -10,6 +10,11 @@ const Booking = require("../models/Booking");
 const { toBusinessDate } = require("../utils/dates");
 const { writeAuditLog } = require("../utils/audit");
 const { AppError } = require("../middleware/errors");
+const Payment = require("../models/Payment");
+const {
+  calcChargesTotal,
+  calcPaymentsTotal,
+} = require("../services/ledger.calc");
 
 const router = express.Router();
 
@@ -60,6 +65,33 @@ router.get(
         .lean();
 
       return res.status(200).json({ data: items });
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
+// Balance summary for one customer: charged, paid, and what is still owing.
+// Positive balance = customer owes money; negative = customer is in credit.
+router.get(
+  "/balance/:customerId",
+  requireRoles("ADMIN", "STAFF", "VIEWER"),
+  async (req, res, next) => {
+    try {
+      const { customerId } = req.params;
+      const customer = await Customer.findById(customerId).lean();
+      if (!customer) {
+        return next(new AppError("Customer not found", 404, "NOT_FOUND"));
+      }
+      const [entries, payments] = await Promise.all([
+        LedgerEntry.find({ customerId }).lean(),
+        Payment.find({ customerId }).lean(),
+      ]);
+      const charged = calcChargesTotal(entries);
+      const paid = calcPaymentsTotal(payments);
+      return res.status(200).json({
+        data: { charged, paid, balance: charged - paid },
+      });
     } catch (err) {
       return next(err);
     }
