@@ -69,6 +69,7 @@ export default function PaymentsPage() {
 
   const [adjCustomerId, setAdjCustomerId] = useState("");
   const [adjAmount, setAdjAmount] = useState("");
+  const [adjDirection, setAdjDirection] = useState<"LESS" | "MORE">("LESS");
   const [adjReason, setAdjReason] = useState("");
   const [adjSaving, setAdjSaving] = useState(false);
 
@@ -160,7 +161,8 @@ export default function PaymentsPage() {
   async function handleRecordAdjustment(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (adjSaving) return;
-    const amount = Number(adjAmount);
+    const entered = Math.abs(Number(adjAmount));
+    const amount = adjDirection === "LESS" ? -entered : entered;
     setFeedback("");
     setError("");
     setAdjSaving(true);
@@ -176,10 +178,14 @@ export default function PaymentsPage() {
           reason: adjReason.trim(),
         },
       });
-      setFeedback(`Posted ledger adjustment of ${formatMK(amount)}.`);
+      setFeedback(
+        adjDirection === "LESS"
+          ? `Reduced the balance by ${formatMK(entered)}.`
+          : `Increased the balance by ${formatMK(entered)}.`,
+      );
       setAdjAmount("");
       setAdjReason("");
-      setBalanceTick((t) => t + 1); // balance changed, refresh the payment form
+      setBalanceTick((t) => t + 1);
       void loadAll();
     } catch (err) {
       setError(
@@ -290,7 +296,7 @@ export default function PaymentsPage() {
   const payAmountNumber = Number(payAmount);
   const payValid = Number.isInteger(payAmountNumber) && payAmountNumber > 0;
   const adjAmountNumber = Number(adjAmount);
-  const adjValid = Number.isInteger(adjAmountNumber) && adjAmountNumber !== 0;
+  const adjValid = Number.isInteger(adjAmountNumber) && adjAmountNumber > 0;
 
   return (
     <div>
@@ -428,7 +434,7 @@ export default function PaymentsPage() {
 
           <Panel
             title="Adjustment / fee waiver"
-            action="Negative amounts reduce the balance"
+            action="Fix a customer's balance without a payment"
           >
             <form onSubmit={handleRecordAdjustment} className="space-y-4 p-5">
               <SelectField
@@ -442,16 +448,36 @@ export default function PaymentsPage() {
                 options={customerOptions}
               />
               <div className="space-y-2">
-                <Label htmlFor="adjAmount">Amount (e.g. -8000)</Label>
+                <Label>What do you want to do?</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant={adjDirection === "LESS" ? "default" : "outline"}
+                    onClick={() => setAdjDirection("LESS")}
+                  >
+                    Customer owes less
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={adjDirection === "MORE" ? "default" : "outline"}
+                    onClick={() => setAdjDirection("MORE")}
+                  >
+                    Customer owes more
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="adjAmount">By how much? (MK)</Label>
                 <Input
                   id="adjAmount"
                   type="number"
                   inputMode="numeric"
+                  min={1}
                   step={1}
                   required
                   value={adjAmount}
                   onChange={(e) => setAdjAmount(e.target.value)}
-                  placeholder="-2000 to waive, 2000 to add"
+                  placeholder="e.g. 2000"
                 />
               </div>
               <div className="space-y-2">
