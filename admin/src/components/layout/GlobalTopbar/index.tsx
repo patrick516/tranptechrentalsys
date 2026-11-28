@@ -64,14 +64,6 @@ export default function GlobalTopbar({ onMenuClick }: GlobalTopbarProps) {
             <span className="text-xl">☰</span>
           </button>
 
-          <img
-            src="/images/RentalsLogo.png"
-            alt="TranpTech Rentals"
-            width={120}
-            height={48}
-            className="h-8 w-auto shrink-0 md:hidden"
-          />
-
           {/* Search UI - backend integration comes next */}
           <div className="relative hidden w-full max-w-md md:block">
             <Search
