@@ -13,7 +13,10 @@ import { Button } from "@/components/ui/button";
 import Topbar from "../../components/layout/Topbar";
 import Panel from "../../components/common/Panel";
 import PeriodFilter from "../../components/common/PeriodFilter";
-import { defaultPeriodValue, type PeriodValue } from "../../components/common/period";
+import {
+  defaultPeriodValue,
+  type PeriodValue,
+} from "../../components/common/period";
 import KpiGrid, {
   KpiGridSkeleton,
   type DashboardKpiData,
@@ -22,11 +25,7 @@ import Chart, { type BarDatum } from "../../components/common/Chart";
 import DataTable, { type Column } from "../../components/common/DataTable";
 import StatsCard from "../../components/common/StatsCard";
 import CustomerStatus from "../../components/customers/CustomerStatus";
-import {
-  TrendChart,
-  BarsChart,
-  type Series,
-} from "../../components/charts";
+import { TrendChart, BarsChart, type Series } from "../../components/charts";
 
 interface DebtorRow {
   customerId: string;
@@ -81,7 +80,9 @@ const debtorColumns: Column<DebtorRow>[] = [
     key: "phone",
     header: "Phone",
     render: (d) => (
-      <span className="tabular-nums text-slate-600">{d.primaryPhone || "–"}</span>
+      <span className="tabular-nums text-slate-600">
+        {d.primaryPhone || "–"}
+      </span>
     ),
   },
   {
@@ -93,6 +94,7 @@ const debtorColumns: Column<DebtorRow>[] = [
     ),
   },
 ];
+//change
 
 function toSeries(points: Point[], id: string): Series {
   return {
@@ -188,7 +190,9 @@ export default function DashboardPage() {
         toSeries(s.paymentsCumulative, "Received"),
       ]
     : [];
-  const balanceSeries: Series[] = s ? [toSeries(s.balanceCumulative, "Balance")] : [];
+  const balanceSeries: Series[] = s
+    ? [toSeries(s.balanceCumulative, "Balance")]
+    : [];
   const chairsSeries: Series[] = s ? [toSeries(s.chairsOut, "Chairs out")] : [];
   const paymentsDaily: BarDatum[] = (s?.payments || []).map((p) => ({
     label: p.date.slice(5),
@@ -198,7 +202,9 @@ export default function DashboardPage() {
     label: p.date.slice(5),
     value: p.value,
   }));
-  const overdueSeries: Series[] = s ? [toSeries(s.overdueCount, "Overdue bookings")] : [];
+  const overdueSeries: Series[] = s
+    ? [toSeries(s.overdueCount, "Overdue bookings")]
+    : [];
 
   return (
     <div>
@@ -230,7 +236,10 @@ export default function DashboardPage() {
 
       <div className="space-y-6">
         {message && (
-          <p role="status" className="flex items-start gap-2 text-sm text-green-700">
+          <p
+            role="status"
+            className="flex items-start gap-2 text-sm text-green-700"
+          >
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             {message}
           </p>
@@ -254,11 +263,7 @@ export default function DashboardPage() {
           </p>
         )}
 
-        {loading && !kpi ? (
-          <KpiGridSkeleton />
-        ) : (
-          kpi && <KpiGrid kpi={kpi} />
-        )}
+        {loading && !kpi ? <KpiGridSkeleton /> : kpi && <KpiGrid kpi={kpi} />}
 
         {/* Range summary: how the selected period performed */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -276,7 +281,9 @@ export default function DashboardPage() {
             label="Net for the period"
             value={formatMK(summary?.net || 0)}
             subtext={
-              (summary?.net || 0) > 0 ? "More charged than received" : "More received than charged"
+              (summary?.net || 0) > 0
+                ? "More charged than received"
+                : "More received than charged"
             }
           />
           <StatsCard
@@ -298,7 +305,10 @@ export default function DashboardPage() {
             title="Outstanding balance over time (cumulative)"
             action={`${period.from} → ${period.to}`}
           >
-            <TrendChart series={balanceSeries} formatValue={(v) => formatMK(v)} />
+            <TrendChart
+              series={balanceSeries}
+              formatValue={(v) => formatMK(v)}
+            />
           </Panel>
 
           <Panel title="Chairs out per day">
