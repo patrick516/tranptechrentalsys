@@ -1,12 +1,20 @@
 // Stock: how many chairs exist, what is free day-by-day, and every movement
-// that changed the fleet.
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { AlertCircle, CheckCircle2, Plus } from "lucide-react";
+// that changed the fleet. Adding chairs and recording movements happen in
+// modal dialogs opened from the icon buttons at the top.
+import { useCallback, useEffect, useState } from "react";
+import {
+  AlertCircle,
+  ArrowLeftRight,
+  CheckCircle2,
+  PackagePlus,
+} from "lucide-react";
 import { apiRequest } from "../../api/client";
 import { todayBlantyre } from "../../lib/format";
 import Topbar from "../../components/layout/Topbar";
 import Panel from "../../components/common/Panel";
 import DataTable, { type Column } from "../../components/common/DataTable";
+import FormDialog from "../../components/common/FormDialog";
+import FormField from "../../components/forms/FormField";
 import SelectField from "../../components/forms/SelectField";
 import StatsCard from "../../components/common/StatsCard";
 import { BarsChart } from "../../components/charts";
@@ -27,15 +35,32 @@ interface AvailabilityReport {
   days: AvailabilityDay[];
 }
 
+type MovementType =
+  | "PURCHASE"
+  | "LOST"
+  | "DAMAGED"
+  | "REPAIRED"
+  | "FOUND"
+  | "WRITE_OFF";
+
 interface MovementRow {
   _id: string;
   date: string;
-  type: "PURCHASE" | "LOST" | "DAMAGED" | "REPAIRED" | "FOUND" | "WRITE_OFF";
+  type: MovementType;
   qty: number;
   note: string;
 }
 
-const MOVEMENT_OPTIONS: { value: MovementRow["type"]; label: string }[] = [
+interface MovementPayload {
+  type: MovementType;
+  qty: number;
+  date: string;
+  note: string;
+}
+
+type DialogKind = "add" | "movement";
+
+const MOVEMENT_OPTIONS: { value: MovementType; label: string }[] = [
   { value: "PURCHASE", label: "PURCHASE (+)" },
   { value: "FOUND", label: "FOUND (+)" },
   { value: "REPAIRED", label: "REPAIRED (+)" },
@@ -44,6 +69,183 @@ const MOVEMENT_OPTIONS: { value: MovementRow["type"]; label: string }[] = [
   { value: "WRITE_OFF", label: "WRITE_OFF (−)" },
 ];
 
+function wholeNumber(value: string): number | null {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 1 ? n : null;
+}
+
+// ---------------------------------------------------------------------------
+// Dialog: add chairs (records a PURCHASE movement)
+// ---------------------------------------------------------------------------
+function AddChairsDialog({
+  open,
+  onOpenChange,
+  today,
+  onSave,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  today: string;
+  onSave: (payload: MovementPayload) => Promise<void>;
+}) {
+  const [qty, setQty] = useState("50");
+  const [date, setDate] = useState(today);
+  const [note, setNote] = useState("");
+
+  const chairs = wholeNumber(qty);
+
+  return (
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Add chairs to inventory"
+      description="Records a PURCHASE movement."
+      submitLabel="Add chairs"
+      submittingLabel="Adding…"
+      submitDisabled={chairs === null || !date}
+      onSubmit={() =>
+        onSave({
+          type: "PURCHASE",
+          qty: chairs ?? 0,
+          date,
+          note: note.trim() || "Added chairs to inventory",
+        })
+      }
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <FormField
+          label="Quantity"
+          htmlFor="add-qty"
+          error={
+            chairs === null ? "Enter a whole number, 1 or more." : undefined
+          }
+        >
+          <Input
+            id="add-qty"
+            type="number"
+            inputMode="numeric"
+            min={1}
+            step={1}
+            required
+            value={qty}
+            onChange={(e) => setQty(e.target.value)}
+          />
+        </FormField>
+        <FormField label="Date" htmlFor="add-date">
+          <Input
+            id="add-date"
+            type="date"
+            required
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
+        </FormField>
+      </div>
+      <FormField
+        label="Supplier / batch note"
+        htmlFor="add-note"
+        hint="Optional."
+      >
+        <Input
+          id="add-note"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="e.g. bought 50 plastic chairs in Limbe"
+        />
+      </FormField>
+    </FormDialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Dialog: record any stock movement
+// ---------------------------------------------------------------------------
+function MovementDialog({
+  open,
+  onOpenChange,
+  today,
+  onSave,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  today: string;
+  onSave: (payload: MovementPayload) => Promise<void>;
+}) {
+  const [type, setType] = useState<MovementType>("PURCHASE");
+  const [qty, setQty] = useState("20");
+  const [date, setDate] = useState(today);
+  const [note, setNote] = useState("");
+
+  const chairs = wholeNumber(qty);
+
+  return (
+    <FormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Record a stock movement"
+      description="Negative types reduce the fleet."
+      submitLabel="Record"
+      submittingLabel="Saving…"
+      submitDisabled={chairs === null || !date}
+      onSubmit={() =>
+        onSave({ type, qty: chairs ?? 0, date, note: note.trim() })
+      }
+    >
+      <SelectField
+        id="mov-type"
+        label="Type"
+        value={type}
+        onValueChange={(v) => setType(v as MovementType)}
+        options={MOVEMENT_OPTIONS}
+      />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <FormField
+          label="Quantity"
+          htmlFor="mov-qty"
+          error={
+            chairs === null ? "Enter a whole number, 1 or more." : undefined
+          }
+        >
+          <Input
+            id="mov-qty"
+            type="number"
+            inputMode="numeric"
+            min={1}
+            step={1}
+            required
+            value={qty}
+            onChange={(e) => setQty(e.target.value)}
+          />
+        </FormField>
+        <FormField label="Date" htmlFor="mov-date">
+          <Input
+            id="mov-date"
+            type="date"
+            required
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
+        </FormField>
+      </div>
+      <FormField
+        label="Note"
+        htmlFor="mov-note"
+        hint="Optional reason for the movement."
+      >
+        <Input
+          id="mov-note"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Reason for the movement"
+        />
+      </FormField>
+    </FormDialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
 export default function StockPage() {
   const today = todayBlantyre();
   const [fromDate, setFromDate] = useState(today);
@@ -52,16 +254,7 @@ export default function StockPage() {
   const [movements, setMovements] = useState<MovementRow[]>([]);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
-
-  const [addChairsQty, setAddChairsQty] = useState(50);
-  const [addChairsDate, setAddChairsDate] = useState(today);
-  const [addChairsNote, setAddChairsNote] = useState("");
-
-  const [type, setType] = useState<MovementRow["type"]>("PURCHASE");
-  const [qty, setQty] = useState(20);
-  const [movDate, setMovDate] = useState(today);
-  const [note, setNote] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [openDialog, setOpenDialog] = useState<DialogKind | null>(null);
 
   const loadStock = useCallback(async () => {
     setError("");
@@ -83,46 +276,22 @@ export default function StockPage() {
     loadStock();
   }, [loadStock]);
 
-  async function handleQuickAddChairs(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  function openFor(kind: DialogKind) {
     setFeedback("");
-    setError("");
-    try {
-      await apiRequest("/stock/movements", {
-        method: "POST",
-        body: {
-          type: "PURCHASE",
-          qty: Number(addChairsQty),
-          date: addChairsDate,
-          note: addChairsNote.trim() || "Added chairs to inventory",
-        },
-      });
-      setFeedback(`Added ${Number(addChairsQty)} chairs to stock.`);
-      setAddChairsNote("");
-      await loadStock();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add chairs");
-    }
+    setOpenDialog(kind);
   }
 
-  async function handleAddMovement(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setSaving(true);
-    setFeedback("");
-    setError("");
-    try {
-      await apiRequest("/stock/movements", {
-        method: "POST",
-        body: { type, qty: Number(qty), date: movDate, note: note.trim() },
-      });
-      setFeedback(`Recorded ${type} movement of ${Number(qty)} chairs.`);
-      setNote("");
-      await loadStock();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to record stock movement");
-    } finally {
-      setSaving(false);
-    }
+  // The handlers throw on failure: the dialog shows the message itself.
+  async function addChairs(payload: MovementPayload) {
+    await apiRequest("/stock/movements", { method: "POST", body: payload });
+    setFeedback(`Added ${payload.qty} chairs to stock.`);
+    void loadStock(); // refresh in the background so the dialog closes right away
+  }
+
+  async function recordMovement(payload: MovementPayload) {
+    await apiRequest("/stock/movements", { method: "POST", body: payload });
+    setFeedback(`Recorded ${payload.type} movement of ${payload.qty} chairs.`);
+    void loadStock();
   }
 
   const days = report?.days || [];
@@ -132,15 +301,35 @@ export default function StockPage() {
   }));
 
   const availabilityColumns: Column<AvailabilityDay>[] = [
-    { key: "date", header: "Date", render: (d) => <span className="tabular-nums text-slate-600">{d.date}</span> },
-    { key: "total", header: "Owned", align: "right", render: (d) => <span className="tabular-nums text-slate-600">{d.totalOwned}</span> },
-    { key: "out", header: "Reserved / out", align: "right", render: (d) => <span className="tabular-nums">{d.reservedOrOut}</span> },
+    {
+      key: "date",
+      header: "Date",
+      render: (d) => (
+        <span className="tabular-nums text-slate-600">{d.date}</span>
+      ),
+    },
+    {
+      key: "total",
+      header: "Owned",
+      align: "right",
+      render: (d) => (
+        <span className="tabular-nums text-slate-600">{d.totalOwned}</span>
+      ),
+    },
+    {
+      key: "out",
+      header: "Reserved / out",
+      align: "right",
+      render: (d) => <span className="tabular-nums">{d.reservedOrOut}</span>,
+    },
     {
       key: "available",
       header: "Available",
       align: "right",
       render: (d) => (
-        <span className={`font-semibold tabular-nums ${d.available === 0 ? "text-red-600" : ""}`}>
+        <span
+          className={`font-semibold tabular-nums ${d.available === 0 ? "text-red-600" : ""}`}
+        >
           {d.available}
         </span>
       ),
@@ -148,18 +337,37 @@ export default function StockPage() {
   ];
 
   const movementColumns: Column<MovementRow>[] = [
-    { key: "date", header: "Date", render: (d) => <span className="tabular-nums text-slate-600">{d.date}</span> },
+    {
+      key: "date",
+      header: "Date",
+      render: (d) => (
+        <span className="tabular-nums text-slate-600">{d.date}</span>
+      ),
+    },
     {
       key: "type",
       header: "Type",
       render: (d) => (
-        <span className={`text-slate-700 ${d.type === "LOST" || d.type === "DAMAGED" || d.type === "WRITE_OFF" ? "text-red-600" : ""}`}>
+        <span
+          className={`text-slate-700 ${d.type === "LOST" || d.type === "DAMAGED" || d.type === "WRITE_OFF" ? "text-red-600" : ""}`}
+        >
           {d.type}
         </span>
       ),
     },
-    { key: "qty", header: "Qty", align: "right", render: (d) => <span className="font-semibold tabular-nums">{d.qty}</span> },
-    { key: "note", header: "Note", render: (d) => <span className="text-slate-500">{d.note || "–"}</span> },
+    {
+      key: "qty",
+      header: "Qty",
+      align: "right",
+      render: (d) => (
+        <span className="font-semibold tabular-nums">{d.qty}</span>
+      ),
+    },
+    {
+      key: "note",
+      header: "Note",
+      render: (d) => <span className="text-slate-500">{d.note || "–"}</span>,
+    },
   ];
 
   return (
@@ -170,30 +378,73 @@ export default function StockPage() {
         rightSlot={
           <div className="flex flex-wrap items-end gap-2">
             <div>
-              <Label htmlFor="stockFrom" className="mb-1.5 block text-xs text-slate-500">
+              <Label
+                htmlFor="stockFrom"
+                className="mb-1.5 block text-xs text-slate-500"
+              >
                 From
               </Label>
-              <Input id="stockFrom" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+              <Input
+                id="stockFrom"
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+              />
             </div>
             <div>
-              <Label htmlFor="stockTo" className="mb-1.5 block text-xs text-slate-500">
+              <Label
+                htmlFor="stockTo"
+                className="mb-1.5 block text-xs text-slate-500"
+              >
                 To
               </Label>
-              <Input id="stockTo" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+              <Input
+                id="stockTo"
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+              />
             </div>
+            <Button
+              type="button"
+              size="icon"
+              className="h-10 w-10"
+              title="Add chairs to inventory"
+              aria-label="Add chairs to inventory"
+              onClick={() => openFor("add")}
+            >
+              <PackagePlus aria-hidden />
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="h-10 w-10"
+              title="Record a stock movement"
+              aria-label="Record a stock movement"
+              onClick={() => openFor("movement")}
+            >
+              <ArrowLeftRight aria-hidden />
+            </Button>
           </div>
         }
       />
 
       <div className="space-y-6">
         {feedback && (
-          <p role="status" className="flex items-start gap-2 text-sm text-emerald-700">
+          <p
+            role="status"
+            className="flex items-start gap-2 text-sm text-emerald-700"
+          >
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             {feedback}
           </p>
         )}
         {error && (
-          <p role="alert" className="flex items-start gap-2 text-sm text-red-600">
+          <p
+            role="alert"
+            className="flex items-start gap-2 text-sm text-red-600"
+          >
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             {error}
           </p>
@@ -213,98 +464,10 @@ export default function StockPage() {
           />
         </div>
 
-        <Panel title="Add chairs to inventory" action="Records a PURCHASE movement">
-          <form onSubmit={handleQuickAddChairs} className="grid grid-cols-1 gap-4 p-5 md:grid-cols-5">
-            <div className="space-y-2">
-              <Label htmlFor="addQty">Quantity</Label>
-              <Input
-                id="addQty"
-                type="number"
-                min={1}
-                step={1}
-                required
-                value={addChairsQty}
-                onChange={(e) => setAddChairsQty(Number(e.target.value))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="addDate">Date</Label>
-              <Input
-                id="addDate"
-                type="date"
-                required
-                value={addChairsDate}
-                onChange={(e) => setAddChairsDate(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="addNote">Supplier / batch note</Label>
-              <Input
-                id="addNote"
-                value={addChairsNote}
-                onChange={(e) => setAddChairsNote(e.target.value)}
-                placeholder="e.g. bought 50 plastic chairs in Limbe"
-              />
-            </div>
-            <div className="flex items-end">
-              <Button type="submit" className="w-full">
-                <Plus aria-hidden />
-                Add chairs
-              </Button>
-            </div>
-          </form>
-        </Panel>
-
-        <Panel title="Record a stock movement" action="Negative types reduce the fleet">
-          <form onSubmit={handleAddMovement} className="grid grid-cols-1 gap-4 p-5 md:grid-cols-6">
-            <SelectField
-              id="movType"
-              label="Type"
-              value={type}
-              onValueChange={(v) => setType(v as MovementRow["type"])}
-              options={MOVEMENT_OPTIONS}
-              className="md:col-span-1"
-            />
-            <div className="space-y-2">
-              <Label htmlFor="movQty">Quantity</Label>
-              <Input
-                id="movQty"
-                type="number"
-                min={1}
-                step={1}
-                required
-                value={qty}
-                onChange={(e) => setQty(Number(e.target.value))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="movDate">Date</Label>
-              <Input
-                id="movDate"
-                type="date"
-                required
-                value={movDate}
-                onChange={(e) => setMovDate(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="movNote">Note</Label>
-              <Input
-                id="movNote"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Reason for the movement"
-              />
-            </div>
-            <div className="flex items-end">
-              <Button type="submit" variant="outline" className="w-full" disabled={saving}>
-                {saving ? "Saving…" : "Record"}
-              </Button>
-            </div>
-          </form>
-        </Panel>
-
-        <Panel title="Availability by day" action={days.length ? `${fromDate} → ${toDate}` : undefined}>
+        <Panel
+          title="Availability by day"
+          action={days.length ? `${fromDate} → ${toDate}` : undefined}
+        >
           <div className="p-5">
             <BarsChart
               data={chartData}
@@ -324,7 +487,10 @@ export default function StockPage() {
           </div>
         </Panel>
 
-        <Panel title="Recent stock movements" action={`${movements.length} total`}>
+        <Panel
+          title="Recent stock movements"
+          action={`${movements.length} total`}
+        >
           <DataTable
             caption="Stock movement ledger"
             columns={movementColumns}
@@ -334,6 +500,21 @@ export default function StockPage() {
           />
         </Panel>
       </div>
+
+      <AddChairsDialog
+        key={`add-${openDialog ?? "closed"}`}
+        open={openDialog === "add"}
+        onOpenChange={(o) => !o && setOpenDialog(null)}
+        today={today}
+        onSave={addChairs}
+      />
+      <MovementDialog
+        key={`mov-${openDialog ?? "closed"}`}
+        open={openDialog === "movement"}
+        onOpenChange={(o) => !o && setOpenDialog(null)}
+        today={today}
+        onSave={recordMovement}
+      />
     </div>
   );
 }
