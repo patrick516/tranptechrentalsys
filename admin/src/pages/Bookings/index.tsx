@@ -5,17 +5,32 @@ import { AlertCircle, CheckCircle2, Plus } from "lucide-react";
 import { apiRequest } from "../../api/client";
 import { formatMK, todayBlantyre } from "../../lib/format";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import Topbar from "../../components/layout/Topbar";
 import Panel from "../../components/common/Panel";
 import DataTable, { type Column } from "../../components/common/DataTable";
 import BookingStatusBadge from "../../components/bookings/BookingStatusBadge";
 import BookingRowActions from "../../components/bookings/BookingRowActions";
-import NewBookingDialog, { type NewBookingPayload } from "../../components/bookings/NewBookingDialog";
-import ExtendDialog, { type ExtendPayload } from "../../components/bookings/ExtendDialog";
-import ReturnDialog, { type ReturnPayload } from "../../components/bookings/ReturnDialog";
+import NewBookingDialog, {
+  type NewBookingPayload,
+} from "../../components/bookings/NewBookingDialog";
+import ExtendDialog, {
+  type ExtendPayload,
+} from "../../components/bookings/ExtendDialog";
+import ReturnDialog, {
+  type ReturnPayload,
+} from "../../components/bookings/ReturnDialog";
 import CancelDialog from "../../components/bookings/CancelDialog";
-import type { BookingItem, CustomerRef } from "../../components/bookings/bookingTypes";
+import type {
+  BookingItem,
+  CustomerRef,
+} from "../../components/bookings/bookingTypes";
 
 type DialogKind = "new" | "return" | "extend" | "cancel";
 
@@ -28,7 +43,8 @@ const STATUS_FILTERS = [
 ];
 
 function customerCell(customer: CustomerRef | string) {
-  if (typeof customer === "string") return <span className="text-slate-600">{customer}</span>;
+  if (typeof customer === "string")
+    return <span className="text-slate-600">{customer}</span>;
   return (
     <div>
       <p className="font-medium">{customer.name}</p>
@@ -55,8 +71,13 @@ export default function BookingsPage() {
     setLoading(true);
     setError("");
     try {
-      const query = statusFilter !== "ALL" ? `?status=${encodeURIComponent(statusFilter)}` : "";
-      const res = await apiRequest<{ data: BookingItem[] }>(`/bookings${query}`);
+      const query =
+        statusFilter !== "ALL"
+          ? `?status=${encodeURIComponent(statusFilter)}`
+          : "";
+      const res = await apiRequest<{ data: BookingItem[] }>(
+        `/bookings${query}`,
+      );
       setBookings(res.data || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load bookings");
@@ -84,31 +105,46 @@ export default function BookingsPage() {
 
   // The handlers below throw on failure: the dialog shows the message itself.
   async function createBooking(payload: NewBookingPayload) {
-    const res = await apiRequest<{ data: { booking: BookingItem; warnings?: string[] } }>("/bookings", {
+    const res = await apiRequest<{
+      data: { booking: BookingItem; warnings?: string[] };
+    }>("/bookings", {
       method: "POST",
       body: payload,
     });
-    const warnings = res.data?.warnings?.length ? ` Warnings: ${res.data.warnings.join(", ")}.` : "";
+    const warnings = res.data?.warnings?.length
+      ? ` Warnings: ${res.data.warnings.join(", ")}.`
+      : "";
     setFeedback(`Created booking ${res.data.booking.code}.${warnings}`);
-    await loadBookings();
+    void loadBookings(); // refresh in the background so the dialog closes right away
   }
 
   async function extendBooking(booking: BookingItem, payload: ExtendPayload) {
-    await apiRequest(`/bookings/${booking._id}/extend`, { method: "POST", body: payload });
-    setFeedback(`Extended ${booking.code} by ${payload.days} day${payload.days === 1 ? "" : "s"}.`);
-    await loadBookings();
+    await apiRequest(`/bookings/${booking._id}/extend`, {
+      method: "POST",
+      body: payload,
+    });
+    setFeedback(
+      `Extended ${booking.code} by ${payload.days} day${payload.days === 1 ? "" : "s"}.`,
+    );
+    void loadBookings();
   }
 
   async function returnBooking(booking: BookingItem, payload: ReturnPayload) {
-    await apiRequest(`/bookings/${booking._id}/return`, { method: "POST", body: payload });
+    await apiRequest(`/bookings/${booking._id}/return`, {
+      method: "POST",
+      body: payload,
+    });
     setFeedback(`Recorded the return for ${booking.code}.`);
-    await loadBookings();
+    void loadBookings();
   }
 
   async function cancelBooking(booking: BookingItem, reason: string) {
-    await apiRequest(`/bookings/${booking._id}/cancel`, { method: "POST", body: { reason } });
+    await apiRequest(`/bookings/${booking._id}/cancel`, {
+      method: "POST",
+      body: { reason },
+    });
     setFeedback(`Cancelled ${booking.code}.`);
-    await loadBookings();
+    void loadBookings();
   }
 
   // Pick-up needs no form: it records today's date straight away.
@@ -116,17 +152,30 @@ export default function BookingsPage() {
     setFeedback("");
     setError("");
     try {
-      await apiRequest(`/bookings/${booking._id}/pickup`, { method: "POST", body: { pickupDate: today } });
+      await apiRequest(`/bookings/${booking._id}/pickup`, {
+        method: "POST",
+        body: { pickupDate: today },
+      });
       setFeedback(`${booking.code} marked as picked up.`);
       await loadBookings();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to record the pick-up");
+      setError(
+        err instanceof Error ? err.message : "Failed to record the pick-up",
+      );
     }
   }
 
   const columns: Column<BookingItem>[] = [
-    { key: "code", header: "Booking", render: (b) => <span className="font-medium tabular-nums">{b.code}</span> },
-    { key: "customer", header: "Customer", render: (b) => customerCell(b.customerId) },
+    {
+      key: "code",
+      header: "Booking",
+      render: (b) => <span className="font-medium tabular-nums">{b.code}</span>,
+    },
+    {
+      key: "customer",
+      header: "Customer",
+      render: (b) => customerCell(b.customerId),
+    },
     {
       key: "dates",
       header: "Dates",
@@ -149,12 +198,21 @@ export default function BookingsPage() {
     {
       key: "rate",
       header: "Rate",
-      render: (b) => <span className="whitespace-nowrap tabular-nums text-slate-600">{formatMK(b.ratePerChairPerDay)}/day</span>,
+      render: (b) => (
+        <span className="whitespace-nowrap tabular-nums text-slate-600">
+          {formatMK(b.ratePerChairPerDay)}/day
+        </span>
+      ),
     },
     {
       key: "status",
       header: "Status",
-      render: (b) => <BookingStatusBadge status={b.status} overdue={b.status === "OUT" && b.endDate < today} />,
+      render: (b) => (
+        <BookingStatusBadge
+          status={b.status}
+          overdue={b.status === "OUT" && b.endDate < today}
+        />
+      ),
     },
     {
       key: "actions",
@@ -201,13 +259,19 @@ export default function BookingsPage() {
 
       <div className="space-y-4">
         {feedback && (
-          <p role="status" className="flex items-start gap-2 text-sm text-green-700">
+          <p
+            role="status"
+            className="flex items-start gap-2 text-sm text-green-700"
+          >
             <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             {feedback}
           </p>
         )}
         {error && (
-          <p role="alert" className="flex items-start gap-2 text-sm text-red-600">
+          <p
+            role="alert"
+            className="flex items-start gap-2 text-sm text-red-600"
+          >
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
             {error}
           </p>
@@ -215,7 +279,10 @@ export default function BookingsPage() {
 
         <Panel>
           {loading && bookings.length === 0 ? (
-            <p role="status" className="py-8 text-center text-sm text-slate-500">
+            <p
+              role="status"
+              className="py-8 text-center text-sm text-slate-500"
+            >
               Loading bookings…
             </p>
           ) : (
