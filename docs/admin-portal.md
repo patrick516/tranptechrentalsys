@@ -121,7 +121,7 @@ business maths, it only renders.
 | **Stock** | Date range → availability KPIs + a bars chart of free chairs per day + the daily availability table; "add chairs" and "record a movement" forms post to `/stock/movements`. |
 | **Payments & ledger** | Record a payment (customer, amount, method, reference) or post an adjustment/waiver; recent payments and ledger side by side; running total for today. |
 | **Promises** | Create a payment/return promise, filter to overdue, mark `KEPT` or `BROKEN`. |
-| **Messages** | Compose a WhatsApp/SMS reminder (customer + channel + body, opt-in enforced by the API) and audit the delivery log with status chips. |
+| **Messages** | Compose a WhatsApp/SMS reminder (customer + channel + body, opt-in enforced by the API) and audit the log: direction (In/Out), status chips including `SENDING` and `RECEIVED`, and the failure reason under a failed row. |
 | **Reports** | Tabs: Overview (trends, ageing buckets, collections), Ageing, Collections, Utilisation — each with `StatsCard` totals and tables; CSV export through `SelectField` + `apiDownload`. |
 | **Files** | Folder tree on the left (`FolderTree`), files in the centre: **files open in the app** through `GET /files/:id/content` (`FileViewer` renders PDFs/images/text from a blob — nothing is downloaded to the computer). Upload dialog, kind filter, and statement export that files the result into the tree. |
 | **Settings** | Business name, rate/late fee/grace days, SMS cap and mode. |

@@ -21,8 +21,10 @@ interface MessageLogRow {
   toPhone: string;
   network: string;
   channel: "WHATSAPP" | "SMS";
+  direction?: "OUT" | "IN";
   body: string;
   status: string;
+  error?: string;
   createdAt: string;
 }
 
@@ -32,6 +34,8 @@ const STATUS_TONE: Record<string, string> = {
   READ: "bg-emerald-50 text-emerald-700 border-emerald-200",
   FAILED: "bg-red-50 text-red-700 border-red-200",
   QUEUED: "bg-slate-50 text-slate-600 border-slate-200",
+  SENDING: "bg-amber-50 text-amber-700 border-amber-200",
+  RECEIVED: "bg-sky-50 text-sky-700 border-sky-200",
   PENDING: "bg-slate-50 text-slate-600 border-slate-200",
 };
 
@@ -90,16 +94,30 @@ export default function MessagesPage() {
       header: "Sent",
       render: (d) => <span className="tabular-nums text-slate-600">{d.createdAt}</span>,
     },
-    { key: "toPhone", header: "To", render: (d) => <span className="tabular-nums">{d.toPhone}</span> },
+    {
+      key: "direction",
+      header: "Dir",
+      render: (d) => (
+        <span className="text-slate-500" title={d.direction === "IN" ? "Received" : "Sent"}>
+          {d.direction === "IN" ? "In" : "Out"}
+        </span>
+      ),
+    },
+    { key: "toPhone", header: "Number", render: (d) => <span className="tabular-nums">{d.toPhone}</span> },
     { key: "channel", header: "Channel", render: (d) => <span className="text-slate-600">{d.channel}</span> },
     {
       key: "status",
       header: "Status",
       render: (d) => (
-        <span
-          className={`inline-flex rounded border px-2 py-0.5 text-xs font-medium ${STATUS_TONE[d.status] || "border-slate-200 bg-slate-50 text-slate-600"}`}
-        >
-          {d.status}
+        <span className="inline-flex flex-col gap-1">
+          <span
+            className={`inline-flex w-fit rounded border px-2 py-0.5 text-xs font-medium ${STATUS_TONE[d.status] || "border-slate-200 bg-slate-50 text-slate-600"}`}
+          >
+            {d.status}
+          </span>
+          {d.status === "FAILED" && d.error && (
+            <span className="max-w-56 text-[11px] leading-snug text-red-600">{d.error}</span>
+          )}
         </span>
       ),
     },
@@ -192,11 +210,11 @@ export default function MessagesPage() {
           }
         >
           <DataTable
-            caption="Every outbound message"
+            caption="Inbound and outbound messages"
             columns={columns}
             rows={messages}
             rowKey={(d) => d._id}
-            emptyText="No messages sent yet."
+            emptyText="No messages yet."
           />
         </Panel>
       </div>

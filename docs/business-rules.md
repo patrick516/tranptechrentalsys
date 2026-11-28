@@ -112,11 +112,27 @@ ones whose date has passed — the list behind the "Promises due" block on **Tod
 
 ## 8. Messaging rules
 
-- WhatsApp requires `customer.whatsappOptIn` — enforced on `POST /messages`.
-- Messages are queued (`QUEUED`) and drained by `src/jobs/sender.js`; failures record
-  `error`, `attempts` and `nextRetryAt` instead of disappearing.
-- SMS respects `Settings.smsDailyCap` and `SMS_MODE` (`log` records without sending).
-- Network routing: `+26599…` → Airtel, `+26588…` → TNM (`Settings.phonePrefixes`).
+- WhatsApp requires `customer.whatsappOptIn` — enforced on `POST /messages`
+  (`services/messaging/optin.js`).
+- Every message starts `QUEUED`. WhatsApp is sent inline when the Cloud API is
+  configured; SMS always goes through the sender worker (`src/jobs/sender.js`, every
+  minute).
+- **Quiet hours**: no real SMS between 19:00 and 07:00 Africa/Blantyre — the message
+  simply waits (it is not lost or cancelled).
+- **Daily cap**: `Settings.smsDailyCap` (default 100). When reached, the rest stay
+  queued; `SMS_MODE=log` records without sending and does not consume the cap.
+- **One per contact**: at most one *automatic* message per contact per day; a manual
+  compose is not limited by that rule.
+- **Retries**: 5 min → 30 min → 2 h → 6 h, then `FAILED` (visible in Today for manual
+  action). After the second failure the other SIM is tried (`fallbackUsed`). A missing
+  API key or a 400/401 from the gateway fails immediately instead of retrying.
+- **Statuses**: `QUEUED → SENDING → SENT → DELIVERED/READ`, or `FAILED`; the TextBee
+  webhook (`POST /webhooks/textbee`, HMAC-signed) moves them and never backwards.
+  Inbound replies are stored as `direction: IN` / `RECEIVED`, matched to a customer by
+  phone number.
+- Network routing: `+26599…` → Airtel, `+26588…` → TNM (`Settings.phonePrefixes`), which
+  selects `TEXTBEE_DEVICE_AIRTEL` / `TEXTBEE_DEVICE_TNM`; unknown networks use
+  `TEXTBEE_DEFAULT_NETWORK`.
 
 ## 9. Statements and exports
 

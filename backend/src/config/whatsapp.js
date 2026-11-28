@@ -7,8 +7,12 @@ const cfg = env.whatsapp;
 
 const MODE = process.env.WHATSAPP_MODE || "auto"; // 'auto' | 'link' | 'off'
 
+function looksPlaceholder(value) {
+  return !value || /^placehol/i.test(value) || /^replace_with/i.test(value);
+}
+
 function isConfigured() {
-  return Boolean(cfg.accessToken && cfg.phoneNumberId);
+  return !looksPlaceholder(cfg.accessToken) && !looksPlaceholder(cfg.phoneNumberId);
 }
 
 function isEnabled() {

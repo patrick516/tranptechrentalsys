@@ -12,6 +12,9 @@ const { toBusinessDate } = require("../utils/dates");
 const { writeAuditLog } = require("../utils/audit");
 const { AppError } = require("../middleware/errors");
 const whatsapp = require("../services/whatsapp/client");
+const waConfig = require("../config/whatsapp");
+const { canSendChannel } = require("../services/messaging/optin");
+const { enqueueMessage } = require("../services/messaging/queue");
 
 const router = express.Router();
 
@@ -77,23 +80,21 @@ router.post(
         );
       }
 
-      if (req.body.channel === "SMS" && contact.smsOptOut) {
+      // Opt-in rules live in services/messaging/optin.js (one place).
+      const optIn = canSendChannel(contact, req.body.channel);
+      if (!optIn.allowed) {
+        if (optIn.reason === "SMS_OPT_OUT") {
+          return next(
+            new AppError("Contact has opted out of SMS reminders", 400, "SMS_OPT_OUT"),
+          );
+        }
+        if (optIn.reason === "WHATSAPP_OPT_OUT") {
+          return next(
+            new AppError("Contact has not agreed to WhatsApp messages", 400, "WHATSAPP_OPT_OUT"),
+          );
+        }
         return next(
-          new AppError(
-            "Contact has opted out of SMS reminders",
-            400,
-            "SMS_OPT_OUT",
-          ),
-        );
-      }
-
-      if (req.body.channel === "WHATSAPP" && !contact.whatsappOptIn) {
-        return next(
-          new AppError(
-            "Contact has not agreed to WhatsApp messages",
-            400,
-            "WHATSAPP_OPT_OUT",
-          ),
+          new AppError("Customer has no contact phone number", 400, "VALIDATION_ERROR"),
         );
       }
 
@@ -135,9 +136,9 @@ router.post(
         contact.network || null,
       );
 
-      const initialStatus = settings?.smsMode === "live" ? "QUEUED" : "SENT";
-
-      const msg = await Message.create({
+      // Everything starts QUEUED: the sender worker dispatches SMS (quiet
+      // hours, daily cap, retries); WhatsApp is attempted inline below.
+      const msg = await enqueueMessage({
         customerId: customer._id,
         bookingId: req.body.bookingId || null,
         contactName: contact.name,
@@ -146,31 +147,41 @@ router.post(
         channel: req.body.channel,
         templateKey: req.body.templateKey,
         body: req.body.body,
-        status: initialStatus,
-        sentAt: initialStatus === "SENT" ? new Date() : null,
+        status: "QUEUED",
+        direction: "OUT",
         createdBy: req.user._id,
       });
 
-      // Automatic WhatsApp: send straight through the Cloud API when the
-      // contact has opted in and the credentials are in .env. SMS keeps its
-      // existing log/live queue behaviour.
-      if (msg.channel === "WHATSAPP" && whatsapp.isConfigured()) {
-        try {
-          const sent = await whatsapp.send({
-            toPhone: normalizedPhone,
-            templateKey: msg.templateKey,
-            vars: { body: msg.body },
-            body: msg.body,
-          });
+      if (msg.channel === "WHATSAPP") {
+        if (waConfig.mode !== "auto") {
+          // link/off modes only record the message (nothing is sent).
           msg.status = "SENT";
           msg.sentAt = new Date();
-          msg.providerMessageId = sent.providerMessageId;
-          await msg.save();
-        } catch (sendErr) {
+          msg.error = "";
+        } else if (!whatsapp.isConfigured()) {
           msg.status = "FAILED";
-          msg.error = sendErr.message;
-          await msg.save();
+          msg.error =
+            "WhatsApp Cloud API is not configured — set WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID in .env";
+        } else {
+          try {
+            const sent = await whatsapp.send({
+              toPhone: normalizedPhone,
+              templateKey: msg.templateKey,
+              vars: { body: msg.body },
+              body: msg.body,
+            });
+            msg.status = "SENT";
+            msg.sentAt = new Date();
+            msg.providerMessageId = sent.providerMessageId || null;
+            msg.error = "";
+          } catch (sendErr) {
+            // Transient failure: leave it queued, the worker retries (8.5).
+            msg.status = "QUEUED";
+            msg.nextRetryAt = new Date(Date.now() + 5 * 60_000);
+            msg.error = sendErr.message;
+          }
         }
+        await msg.save();
       }
 
       await writeAuditLog({

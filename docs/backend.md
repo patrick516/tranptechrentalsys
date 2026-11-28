@@ -111,7 +111,7 @@ Base: `/api/v1`
 | `exports` | `GET /customer/:customerId/statement` |
 | `settings` | `GET /`, `PUT /` |
 | `audit` | `GET /` (ADMIN) |
-| `webhooks` | `GET /whatsapp` (verify), `POST /whatsapp` (status/callback) |
+| `webhooks` | `GET /whatsapp` (verify), `POST /whatsapp` (status/callback), `POST /textbee` (signed delivery status + inbound SMS) |
 | `health` | `GET /health` |
 
 ## 5. Services
@@ -155,8 +155,11 @@ returns the numbers. That is what the tests exercise.
 
 | Job | File | What it does |
 | --- | --- | --- |
-| Daily ledger | `src/jobs/dailyLedgerJob.js` | For every `OUT` booking: posts the day's `HIRE` and any past-due `LATE_FEE`, guarded by `JobRun` + `idempotencyKey`. Can be triggered manually with `POST /reports/run-daily-job` (`JOBS_SECRET`) or by the internal scheduler. |
-| Message sender | `src/jobs/sender.js` | Drains `Message` rows in `QUEUED` and hands them to the channel router. |
+| Daily ledger | `src/jobs/dailyLedgerJob.js` | For every `OUT` booking: posts the day's `HIRE` and any past-due `LATE_FEE`, guarded by `JobRun` + `idempotencyKey`. Runs on the scheduler at 00:05, or manually with `POST /reports/run-daily-job` (`JOBS_SECRET`). |
+| Message sender | `src/jobs/sender.js` | Runs **every minute**: picks due `QUEUED` messages, applies quiet hours (19:00–07:00), the daily cap and the one-automatic-message-per-contact rule, then sends — TextBee for SMS (device chosen by network, the other SIM after the second failure), Cloud API for WhatsApp. Retries at 5 min, 30 min, 2 h, 6 h and then marks the message `FAILED`. |
+
+Both jobs are scheduled by `src/scheduler.js` (node-cron, timezone `TZ`) which is
+started from `server.js` and never from tests.
 
 Timezone: everything is computed against `toBusinessDate()` (Africa/Blantyre), never the
 server's local midnight.
@@ -164,25 +167,42 @@ server's local midnight.
 ## 8. Messaging
 
 ```
-portal / business event
-  → messaging/queue.js        creates a Message (QUEUED) + applies opt-in rules
-  → messaging/router.js       picks channel (WHATSAPP or SMS) by contact + config
-      → sms/textbee.js        TextBee HTTP API, device chosen by network prefix
-      → whatsapp/client.js    Cloud API send
-  → Message status updated    QUEUED → SENT → DELIVERED/READ, or FAILED + nextRetryAt
+POST /messages  →  Message row (QUEUED, direction OUT) + opt-in checks
+      │
+      ├─ WhatsApp + WHATSAPP_MODE=auto + configured  →  sent inline (immediate)
+      │     failure → stays QUEUED, nextRetryAt = now + 5 min
+      │
+      └─ SMS (and WhatsApp leftovers) → jobs/sender.js, every minute
+            quiet hours / daily cap / per-contact cap → wait (still QUEUED)
+            → status SENDING → sms/textbee.js  (device by network, x-api-key)
+            → SENT + providerMessageId = smsBatchId
+            failure → attempts++, nextRetryAt 5m/30m/2h/6h, other SIM after 2nd failure
+                    → FAILED after the last attempt (shows in Today for manual action)
+
+TextBee webhook  POST /webhooks/textbee
+      X-Textbee-Signature: t=<unix>,v1=HMAC-SHA256("<t>.<raw body>")  (5 min window)
+      MESSAGE_SENT/DELIVERED/FAILED → update the message (never backwards)
+      MESSAGE_RECEIVED              → stored as direction IN, matched to a customer
 ```
 
 - **WhatsApp opt-in** (`customer.whatsappOptIn`) is enforced on `POST /messages`.
 - **Templates** live in `whatsapp/templateCatalog.js` (booking confirmation, payment
   receipt, chairs delivered, return due reminder, payment reminder, overdue notice,
   promise reminder) rendered by `whatsapp/templates.js`.
-- `WHATSAPP_MODE=auto` sends through the Cloud API; anything else logs only, so the
-  system is safe to run before real credentials exist.
-- **Inbound**: `GET /webhooks/whatsapp` is the Meta verify handshake, `POST
-  /webhooks/whatsapp` validates the `WHATSAPP_APP_SECRET` signature and records delivery
-  status updates.
-- **SMS**: `SMS_MODE=live|log`, daily cap from `Settings.smsDailyCap`, network routing
-  by `Settings.phonePrefixes` (`+26599…` Airtel, `+26588…` TNM).
+- `WHATSAPP_MODE=auto` sends through the Cloud API; `link`/`off` only record the
+  message. Placeholder credentials count as "not configured", so nothing is attempted
+  until real keys are in `.env`.
+- **Inbound WhatsApp**: `GET /webhooks/whatsapp` is the Meta verify handshake, `POST
+  /webhooks/whatsapp` validates the `WHATSAPP_APP_SECRET` signature and records
+  delivery status updates.
+- **SMS** goes through TextBee (`POST https://api.textbee.dev/api/v1/gateway/send-sms`,
+  header `x-api-key`). `SMS_MODE=live|log` (log records without sending), daily cap from
+  `Settings.smsDailyCap`, network routing by `Settings.phonePrefixes` (`+26599…`
+  Airtel, `+26588…` TNM) → `TEXTBEE_DEVICE_AIRTEL` / `TEXTBEE_DEVICE_TNM`.
+- **Quiet hours**: no real SMS between 19:00 and 07:00 Africa/Blantyre
+  (`SMS_QUIET_START`/`SMS_QUIET_END`); queued messages simply wait.
+- **Deduping**: every webhook delivery carries an `idempotencyKey`, stored on the
+  message under a unique partial index, so a TextBee retry is processed once.
 
 ## 9. Files and Cloudinary
 
